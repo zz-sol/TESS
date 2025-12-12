@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  cargo-check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            cmd: cargo check
+          - name: ark-bn254
+            cmd: cargo check --no-default-features --features ark_bn254
+          - name: ark-bls12381
+            cmd: cargo check --no-default-features --features ark_bls12381
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run ${{ matrix.name }} checks
+        run: ${{ matrix.cmd }}

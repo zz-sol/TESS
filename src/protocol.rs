@@ -125,6 +125,7 @@ pub trait ThresholdScheme<B: PairingBackend>: Debug + Send + Sync + 'static {
     ) -> Result<DecryptionResult<B>, Error>;
 }
 
+#[cfg(feature = "ark_bls12381")]
 pub mod arkworks {
     use super::*;
     use ark_bls12_381::Fr as BlsFr;
