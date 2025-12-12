@@ -594,3 +594,86 @@ pub mod arkworks {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::arkworks::SilentThresholdScheme;
+    use super::*;
+    use crate::{
+        backend::TargetGroup,
+        config::{BackendConfig, BackendId, CurveId},
+    };
+    use rand::{SeedableRng, rngs::StdRng};
+
+    fn sample_params() -> ThresholdParameters {
+        ThresholdParameters {
+            parties: 8,
+            threshold: 4,
+            chunk_size: 32,
+            backend: BackendConfig::new(BackendId::Arkworks, CurveId::Bls12_381),
+        }
+    }
+
+    #[test]
+    fn arkworks_encrypt_decrypt_roundtrip() {
+        let mut rng = StdRng::from_entropy();
+        let scheme = SilentThresholdScheme::default();
+        let params = sample_params();
+        let km = scheme.keygen(&mut rng, &params).expect("keygen");
+        let ct = scheme
+            .encrypt(&mut rng, &km.aggregate_key, &params, b"payload")
+            .expect("encrypt");
+
+        let mut selector = vec![false; params.parties];
+        let mut partials = Vec::new();
+        for idx in 0..=params.threshold {
+            selector[idx] = true;
+            let share = scheme
+                .partial_decrypt(&km.secret_keys[idx], &ct)
+                .expect("partial decrypt");
+            partials.push(share);
+        }
+
+        let result = scheme
+            .aggregate_decrypt(&ct, &partials, &selector, &km.aggregate_key)
+            .expect("aggregate decrypt");
+
+        assert_eq!(
+            result.shared_secret.to_repr(),
+            ct.shared_secret.to_repr(),
+            "shared secret mismatch"
+        );
+    }
+
+    #[test]
+    fn arkworks_decrypt_not_enough_shares() {
+        let mut rng = StdRng::from_entropy();
+        let scheme = SilentThresholdScheme::default();
+        let params = sample_params();
+        let km = scheme.keygen(&mut rng, &params).expect("keygen");
+        let ct = scheme
+            .encrypt(&mut rng, &km.aggregate_key, &params, b"payload")
+            .expect("encrypt");
+
+        let mut selector = vec![false; params.parties];
+        let mut partials = Vec::new();
+        for idx in 0..params.threshold {
+            selector[idx] = true;
+            let share = scheme
+                .partial_decrypt(&km.secret_keys[idx], &ct)
+                .expect("partial decrypt");
+            partials.push(share);
+        }
+
+        let result = scheme.aggregate_decrypt(&ct, &partials, &selector, &km.aggregate_key);
+        assert!(
+            matches!(
+                result,
+                Err(Error::NotEnoughShares { required, provided })
+                    if required == params.threshold + 1 && provided == params.threshold
+            ),
+            "unexpected result: {:?}",
+            result
+        );
+    }
+}
