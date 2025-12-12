@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ark-bls12-381 = "0.5"
+ark-ec = "0.5"
+ark-ff = "0.5"
+ark-poly = "0.5"
+ark-serialize = "0.5"
+ark-std = { version = "0.5", features = ["print-trace"] }
 rand_core = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"

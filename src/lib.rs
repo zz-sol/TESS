@@ -4,11 +4,13 @@
 //! cryptographic backends (Arkworks, blstrs, future GPU-enhanced MSM engines)
 //! to expose a unified interface to the higher-level protocol logic.
 
+pub mod arkworks_backend;
 pub mod backend;
 pub mod config;
 pub mod errors;
 pub mod protocol;
 
+pub use arkworks_backend::*;
 pub use backend::*;
 pub use config::*;
 pub use errors::*;
