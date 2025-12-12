@@ -1,6 +1,7 @@
-use ark_ff::FftField;
+use ark_ff::{FftField, Field};
 use ark_poly::{
-    EvaluationDomain, Evaluations, Radix2EvaluationDomain, univariate::DensePolynomial,
+    DenseUVPolynomial, EvaluationDomain, Evaluations, Radix2EvaluationDomain,
+    univariate::DensePolynomial,
 };
 
 use crate::errors::BackendError;
@@ -29,4 +30,42 @@ pub fn lagrange_poly<F: FftField>(
 /// Compute every Lagrange basis polynomial on an n-point radix-2 domain.
 pub fn lagrange_polys<F: FftField>(n: usize) -> Result<Vec<DensePolynomial<F>>, BackendError> {
     (0..n).map(|i| lagrange_poly(n, i)).collect()
+}
+
+/// Interpolates a polynomial that evaluates to `eval` at `points[0]`
+/// and zero at every other point in `points`.
+pub fn interp_mostly_zero<F: Field>(
+    eval: F,
+    points: &[F],
+) -> Result<DensePolynomial<F>, BackendError> {
+    if points.is_empty() {
+        return Ok(DensePolynomial::from_coefficients_vec(vec![F::one()]));
+    }
+
+    let mut coeffs = vec![F::one()];
+    for &point in points.iter().skip(1) {
+        let neg_point = -point;
+        coeffs.push(F::zero());
+        for i in (0..coeffs.len() - 1).rev() {
+            let (head, tail) = coeffs.split_at_mut(i + 1);
+            let coef = &mut head[i];
+            let next = &mut tail[0];
+            *next += *coef;
+            *coef *= neg_point;
+        }
+    }
+
+    let mut scale = *coeffs.last().unwrap();
+    for coeff in coeffs.iter().rev().skip(1) {
+        scale = scale * points[0] + coeff;
+    }
+    let scale_inv = scale
+        .inverse()
+        .ok_or_else(|| BackendError::Math("interpolation scale inversion failed"))?;
+
+    for coeff in coeffs.iter_mut() {
+        *coeff *= eval * scale_inv;
+    }
+
+    Ok(DensePolynomial::from_coefficients_vec(coeffs))
 }

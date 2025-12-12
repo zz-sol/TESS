@@ -11,6 +11,7 @@ use crate::{
 /// Secret key owned by a participant.
 #[derive(Clone, Debug)]
 pub struct SecretKey<B: PairingBackend> {
+    pub participant_id: usize,
     pub scalar: B::Scalar,
 }
 
@@ -46,6 +47,7 @@ pub struct AggregateKey<B: PairingBackend> {
     pub z_g2: B::G2,
     pub lagrange_row_sums: Vec<B::G1>,
     pub precomputed_pairing: B::Target,
+    pub commitment_params: <B::PolynomialCommitment as PolynomialCommitment<B>>::Parameters,
 }
 
 /// Ciphertext produced by the silent threshold encryption scheme.
@@ -130,11 +132,12 @@ pub mod arkworks {
     use ark_poly::{DenseUVPolynomial, EvaluationDomain, Radix2EvaluationDomain};
     use rand_core::RngCore;
 
-    use crate::arkworks_backend::{ArkG1, ArkG2, ArkworksBls12, BlsKzg, BlsPowers};
-    use crate::backend::CurvePoint;
+    use crate::arkworks_backend::{ArkG1, ArkG2, ArkworksBls12, BlsKzg, BlsMsm, BlsPowers};
+    use crate::backend::{CurvePoint, MsmProvider, TargetGroup};
     use crate::errors::{BackendError, Error};
-    use crate::lagrange::lagrange_polys;
-    use ark_std::{UniformRand, Zero};
+    use crate::lagrange::{interp_mostly_zero, lagrange_polys};
+    use ark_ff::{Field, One, Zero};
+    use ark_std::UniformRand;
 
     #[derive(Debug, Default)]
     pub struct SilentThresholdScheme;
@@ -150,7 +153,8 @@ pub mod arkworks {
             parties: usize,
         ) -> Vec<SecretKey<ArkworksBls12>> {
             (0..parties)
-                .map(|_| SecretKey {
+                .map(|participant_id| SecretKey {
+                    participant_id,
                     scalar: BlsFr::rand(rng),
                 })
                 .collect()
@@ -176,8 +180,7 @@ pub mod arkworks {
             let secret_keys = self.generate_secret_keys(rng, parties);
             let public_keys = secret_keys
                 .iter()
-                .enumerate()
-                .map(|(idx, sk)| derive_public_key(idx, sk, &lagranges, domain, &kzg_params))
+                .map(|sk| derive_public_key(sk.participant_id, sk, &lagranges, domain, &kzg_params))
                 .collect::<Result<Vec<_>, BackendError>>()
                 .map_err(Error::Backend)?;
 
@@ -209,36 +212,116 @@ pub mod arkworks {
 
         fn encrypt<R: RngCore + ?Sized>(
             &self,
-            _rng: &mut R,
-            _agg_key: &AggregateKey<ArkworksBls12>,
-            _params: &ThresholdParameters,
-            _payload: &[u8],
+            rng: &mut R,
+            agg_key: &AggregateKey<ArkworksBls12>,
+            params_cfg: &ThresholdParameters,
+            payload: &[u8],
         ) -> Result<Ciphertext<ArkworksBls12>, Error> {
-            Err(Error::Backend(BackendError::UnsupportedFeature(
-                "encryption not implemented",
-            )))
+            params_cfg.validate()?;
+            let threshold = params_cfg.threshold;
+            let kzg_params = &agg_key.commitment_params;
+
+            if threshold + 1 >= kzg_params.powers_of_g.len() {
+                return Err(Error::Backend(BackendError::Math(
+                    "threshold exceeds supported commitment degree",
+                )));
+            }
+            if kzg_params.powers_of_h.len() < 2 {
+                return Err(Error::Backend(BackendError::Math(
+                    "not enough G2 powers for encryption",
+                )));
+            }
+
+            let g = ArkG1::from_affine(
+                kzg_params
+                    .powers_of_g
+                    .get(0)
+                    .ok_or(BackendError::Math("missing g generator"))?,
+            );
+            let g_tau_t = ArkG1::from_affine(
+                kzg_params
+                    .powers_of_g
+                    .get(threshold + 1)
+                    .ok_or(BackendError::Math("missing g^{tau^{t+1}}"))?,
+            );
+
+            let h = ArkG2::from_affine(
+                kzg_params
+                    .powers_of_h
+                    .get(0)
+                    .ok_or(BackendError::Math("missing h generator"))?,
+            );
+            let h_tau = ArkG2::from_affine(
+                kzg_params
+                    .powers_of_h
+                    .get(1)
+                    .ok_or(BackendError::Math("missing h^tau"))?,
+            );
+            let h_minus_one = ArkG2::generator().negate();
+
+            let gamma = BlsFr::rand(rng);
+            let gamma_g2 = h.mul_scalar(&gamma);
+
+            let s0 = BlsFr::rand(rng);
+            let s1 = BlsFr::rand(rng);
+            let s2 = BlsFr::rand(rng);
+            let s3 = BlsFr::rand(rng);
+            let s4 = BlsFr::rand(rng);
+
+            let sa1_0 = agg_key
+                .ask
+                .mul_scalar(&s0)
+                .add(&g_tau_t.mul_scalar(&s3))
+                .add(&g.mul_scalar(&s4));
+            let sa1_1 = g.mul_scalar(&s2);
+
+            let sa2_0 = h.mul_scalar(&s0).add(&gamma_g2.mul_scalar(&s2));
+            let sa2_1 = agg_key.z_g2.mul_scalar(&s0);
+            let sa2_2 = h_tau.mul_scalar(&(s0 + s1));
+            let sa2_3 = h.mul_scalar(&s1);
+            let sa2_4 = h.mul_scalar(&s3);
+            let sa2_5 = h_tau.add(&h_minus_one).mul_scalar(&s4);
+
+            let shared_secret = agg_key.precomputed_pairing.mul_scalar(&s4);
+
+            let mut proof_g1 = Vec::with_capacity(2);
+            proof_g1.push(sa1_0);
+            proof_g1.push(sa1_1);
+
+            let mut proof_g2 = Vec::with_capacity(6);
+            proof_g2.extend([sa2_0, sa2_1, sa2_2, sa2_3, sa2_4, sa2_5]);
+
+            let _ = payload;
+
+            Ok(Ciphertext {
+                gamma_g2,
+                proof_g1,
+                proof_g2,
+                shared_secret,
+                threshold,
+            })
         }
 
         fn partial_decrypt(
             &self,
-            _secret_key: &SecretKey<ArkworksBls12>,
-            _ciphertext: &Ciphertext<ArkworksBls12>,
+            secret_key: &SecretKey<ArkworksBls12>,
+            ciphertext: &Ciphertext<ArkworksBls12>,
         ) -> Result<PartialDecryption<ArkworksBls12>, Error> {
-            Err(Error::Backend(BackendError::UnsupportedFeature(
-                "partial decryption not implemented",
-            )))
+            let response = ciphertext.gamma_g2.mul_scalar(&secret_key.scalar);
+            Ok(PartialDecryption {
+                participant_id: secret_key.participant_id,
+                response,
+            })
         }
 
         fn aggregate_decrypt(
             &self,
-            _ciphertext: &Ciphertext<ArkworksBls12>,
-            _partials: &[PartialDecryption<ArkworksBls12>],
-            _selector: &[bool],
-            _agg_key: &AggregateKey<ArkworksBls12>,
+            ciphertext: &Ciphertext<ArkworksBls12>,
+            partials: &[PartialDecryption<ArkworksBls12>],
+            selector: &[bool],
+            agg_key: &AggregateKey<ArkworksBls12>,
         ) -> Result<DecryptionResult<ArkworksBls12>, Error> {
-            Err(Error::Backend(BackendError::UnsupportedFeature(
-                "aggregate decryption not implemented",
-            )))
+            aggregate_decrypt(ciphertext, partials, selector, agg_key)
         }
     }
 
@@ -336,6 +419,178 @@ pub mod arkworks {
             z_g2,
             lagrange_row_sums,
             precomputed_pairing: params.e_gh.clone(),
+            commitment_params: params.clone(),
+        })
+    }
+
+    fn divide_by_linear(
+        poly: &DensePolynomial<BlsFr>,
+        root: BlsFr,
+    ) -> (DensePolynomial<BlsFr>, BlsFr) {
+        assert!(poly.coeffs.len() > 1, "cannot divide constant polynomial");
+        let mut quotient = vec![BlsFr::zero(); poly.coeffs.len() - 1];
+        let mut carry = *poly.coeffs.last().unwrap();
+        for (idx, coeff) in poly.coeffs.iter().rev().skip(1).enumerate() {
+            let pos = quotient.len() - 1 - idx;
+            quotient[pos] = carry;
+            carry = *coeff + root * carry;
+        }
+        (DensePolynomial::from_coefficients_vec(quotient), carry)
+    }
+
+    fn aggregate_decrypt(
+        ciphertext: &Ciphertext<ArkworksBls12>,
+        partials: &[PartialDecryption<ArkworksBls12>],
+        selector: &[bool],
+        agg_key: &AggregateKey<ArkworksBls12>,
+    ) -> Result<DecryptionResult<ArkworksBls12>, Error> {
+        let n = agg_key.public_keys.len();
+        if selector.len() != n {
+            return Err(Error::SelectorMismatch {
+                expected: n,
+                actual: selector.len(),
+            });
+        }
+
+        let mut responses = vec![ArkG2::identity(); n];
+        let mut seen = vec![false; n];
+        for partial in partials {
+            if partial.participant_id >= n {
+                return Err(Error::MalformedInput("partial id out of range".into()));
+            }
+            if seen[partial.participant_id] {
+                return Err(Error::MalformedInput("duplicate partial id".into()));
+            }
+            responses[partial.participant_id] = partial.response.clone();
+            seen[partial.participant_id] = true;
+        }
+
+        let provided = selector
+            .iter()
+            .enumerate()
+            .filter(|(idx, selected)| **selected && seen[*idx])
+            .count();
+        let required = ciphertext.threshold + 1;
+        if provided < required {
+            return Err(Error::NotEnoughShares { required, provided });
+        }
+
+        let domain = Radix2EvaluationDomain::new(n)
+            .ok_or_else(|| Error::Backend(BackendError::Math("invalid evaluation domain")))?;
+        let domain_elements: Vec<BlsFr> = domain.elements().collect();
+
+        let mut points = vec![domain_elements[0]];
+        let mut parties = Vec::new();
+        for (i, (&selected, &omega)) in selector.iter().zip(domain_elements.iter()).enumerate() {
+            if selected {
+                if !seen[i] {
+                    return Err(Error::NotEnoughShares { required, provided });
+                }
+                parties.push(i);
+            } else {
+                points.push(omega);
+            }
+        }
+
+        let b = interp_mostly_zero(BlsFr::one(), &points).map_err(Error::Backend)?;
+        let b_evals = domain.fft(&b.coeffs);
+
+        let b_g2 = BlsKzg::commit_g2(&agg_key.commitment_params, &b).map_err(Error::Backend)?;
+
+        let mut b_minus_one = b.clone();
+        if let Some(constant) = b_minus_one.coeffs.get_mut(0) {
+            *constant -= BlsFr::one();
+        }
+        let (q0, remainder) = divide_by_linear(&b_minus_one, domain_elements[0]);
+        if !remainder.is_zero() {
+            return Err(Error::Backend(BackendError::Math(
+                "division by linear failed",
+            )));
+        }
+        let q0_g1 = BlsKzg::commit_g1(&agg_key.commitment_params, &q0).map_err(Error::Backend)?;
+
+        let mut bhat_coeffs = vec![BlsFr::zero(); ciphertext.threshold + 1];
+        bhat_coeffs.extend_from_slice(&b.coeffs);
+        let bhat = DensePolynomial::from_coefficients_vec(bhat_coeffs);
+        let bhat_g1 =
+            BlsKzg::commit_g1(&agg_key.commitment_params, &bhat).map_err(Error::Backend)?;
+
+        let n_inv = BlsFr::from(n as u64)
+            .inverse()
+            .ok_or_else(|| Error::Backend(BackendError::Math("domain size inversion failed")))?;
+
+        let scalars: Vec<BlsFr> = parties.iter().map(|&i| b_evals[i]).collect();
+
+        let apk = if scalars.is_empty() {
+            ArkG1::identity()
+        } else {
+            let bases: Vec<ArkG1> = parties
+                .iter()
+                .map(|&i| agg_key.public_keys[i].bls_key.clone())
+                .collect();
+            BlsMsm::msm_g1(&bases, &scalars)
+                .map_err(Error::Backend)?
+                .mul_scalar(&n_inv)
+        };
+
+        let sigma = if scalars.is_empty() {
+            ArkG2::identity()
+        } else {
+            let bases: Vec<ArkG2> = parties.iter().map(|&i| responses[i].clone()).collect();
+            BlsMsm::msm_g2(&bases, &scalars)
+                .map_err(Error::Backend)?
+                .mul_scalar(&n_inv)
+        };
+
+        let qx = if scalars.is_empty() {
+            ArkG1::identity()
+        } else {
+            let bases: Vec<ArkG1> = parties
+                .iter()
+                .map(|&i| agg_key.public_keys[i].lagrange_li_x.clone())
+                .collect();
+            BlsMsm::msm_g1(&bases, &scalars).map_err(Error::Backend)?
+        };
+
+        let qz = if scalars.is_empty() {
+            ArkG1::identity()
+        } else {
+            let bases: Vec<ArkG1> = parties
+                .iter()
+                .map(|&i| agg_key.lagrange_row_sums[i].clone())
+                .collect();
+            BlsMsm::msm_g1(&bases, &scalars).map_err(Error::Backend)?
+        };
+
+        let qhatx = if scalars.is_empty() {
+            ArkG1::identity()
+        } else {
+            let bases: Vec<ArkG1> = parties
+                .iter()
+                .map(|&i| agg_key.public_keys[i].lagrange_li_minus0.clone())
+                .collect();
+            BlsMsm::msm_g1(&bases, &scalars).map_err(Error::Backend)?
+        };
+
+        let mut lhs = Vec::new();
+        lhs.push(apk.negate());
+        lhs.push(qz.negate());
+        lhs.push(qx.negate());
+        lhs.push(qhatx);
+        lhs.push(bhat_g1.negate());
+        lhs.push(q0_g1.negate());
+        lhs.extend(ciphertext.proof_g1.iter().cloned());
+
+        let mut rhs = Vec::new();
+        rhs.extend(ciphertext.proof_g2.iter().cloned());
+        rhs.push(b_g2);
+        rhs.push(sigma);
+
+        let enc_key = ArkworksBls12::multi_pairing(&lhs, &rhs).map_err(Error::Backend)?;
+
+        Ok(DecryptionResult {
+            shared_secret: enc_key,
+            opening_proof: None,
         })
     }
 }
