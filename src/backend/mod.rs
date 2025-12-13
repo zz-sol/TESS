@@ -102,7 +102,8 @@ pub trait PairingBackend: Send + Sync + Debug + Sized + 'static {
 
 #[cfg(any(feature = "ark_bls12381", feature = "ark_bn254"))]
 fn sample_field<F: PrimeField, R: RngCore + ?Sized>(rng: &mut R) -> F {
-    let mut bytes = vec![0u8; ((F::MODULUS_BIT_SIZE + 7) / 8) as usize];
+    let byte_len = F::MODULUS_BIT_SIZE.div_ceil(8) as usize;
+    let mut bytes = vec![0u8; byte_len];
     rng.fill_bytes(&mut bytes);
     F::from_le_bytes_mod_order(&bytes)
 }

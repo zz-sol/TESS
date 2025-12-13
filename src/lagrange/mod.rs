@@ -96,7 +96,7 @@ mod shared {
         }
         let scale_inv = scale
             .inverse()
-            .ok_or_else(|| BackendError::Math("interpolation scale inversion failed"))?;
+            .ok_or(BackendError::Math("interpolation scale inversion failed"))?;
 
         for coeff in coeffs.iter_mut() {
             *coeff *= eval * scale_inv;

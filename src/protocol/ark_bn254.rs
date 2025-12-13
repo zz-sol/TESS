@@ -87,8 +87,9 @@ impl ThresholdScheme<ArkworksBn254> for SilentThresholdBn {
         };
         let kzg_params = BnKzg::setup(parties, &tau).map_err(Error::Backend)?;
         let lagranges = lagrange_polys(parties).map_err(Error::Backend)?;
-        let domain = Radix2EvaluationDomain::new(parties)
-            .ok_or_else(|| Error::Backend(BackendError::Math("invalid evaluation domain")))?;
+        let domain = Radix2EvaluationDomain::new(parties).ok_or(Error::Backend(
+            BackendError::Math("invalid evaluation domain"),
+        ))?;
         let secret_keys = self.generate_secret_keys(rng, parties);
         let public_keys = secret_keys
             .iter()
@@ -140,7 +141,7 @@ impl ThresholdScheme<ArkworksBn254> for SilentThresholdBn {
         let g = ArkBnG1::from_affine(
             kzg_params
                 .powers_of_g
-                .get(0)
+                .first()
                 .ok_or(BackendError::Math("missing g generator"))?,
         );
         let g_tau_t = ArkBnG1::from_affine(
@@ -152,7 +153,7 @@ impl ThresholdScheme<ArkworksBn254> for SilentThresholdBn {
         let h = ArkBnG2::from_affine(
             kzg_params
                 .powers_of_h
-                .get(0)
+                .first()
                 .ok_or(BackendError::Math("missing h generator"))?,
         );
         let h_tau = ArkBnG2::from_affine(
@@ -337,7 +338,7 @@ fn aggregate_public_key(
     let g2_tau_n = params
         .powers_of_h
         .get(parties)
-        .ok_or_else(|| Error::Backend(BackendError::Math("missing h^tau^n")))?;
+        .ok_or(Error::Backend(BackendError::Math("missing h^tau^n")))?;
     let z_g2 = ArkBnG2::from_affine(g2_tau_n).sub(&ArkBnG2::generator());
 
     Ok(AggregateKey {
@@ -399,8 +400,9 @@ fn aggregate_decrypt(
         return Err(Error::NotEnoughShares { required, provided });
     }
 
-    let domain = Radix2EvaluationDomain::new(n)
-        .ok_or_else(|| Error::Backend(BackendError::Math("invalid evaluation domain")))?;
+    let domain = Radix2EvaluationDomain::new(n).ok_or(Error::Backend(BackendError::Math(
+        "invalid evaluation domain",
+    )))?;
     let domain_elements: Vec<BnFr> = domain.elements().collect();
 
     let mut points = vec![domain_elements[0]];
@@ -440,7 +442,9 @@ fn aggregate_decrypt(
 
     let n_inv = BnFr::from(n as u64)
         .inverse()
-        .ok_or_else(|| Error::Backend(BackendError::Math("domain size inversion failed")))?;
+        .ok_or(Error::Backend(BackendError::Math(
+            "domain size inversion failed",
+        )))?;
 
     let scalars: Vec<BnFr> = parties.iter().map(|&i| b_evals[i]).collect();
 
@@ -495,16 +499,17 @@ fn aggregate_decrypt(
         BnMsm::msm_g1(&bases, &scalars).map_err(Error::Backend)?
     };
 
-    let mut lhs = Vec::new();
-    lhs.push(apk.negate());
-    lhs.push(qz.negate());
-    lhs.push(qx.negate());
-    lhs.push(qhatx);
-    lhs.push(bhat_g1.negate());
-    lhs.push(q0_g1.negate());
+    let mut lhs = vec![
+        apk.negate(),
+        qz.negate(),
+        qx.negate(),
+        qhatx,
+        bhat_g1.negate(),
+        q0_g1.negate(),
+    ];
     lhs.extend(ciphertext.proof_g1.iter().cloned());
 
-    let mut rhs = Vec::new();
+    let mut rhs = Vec::with_capacity(ciphertext.proof_g2.len() + 2);
     rhs.extend(ciphertext.proof_g2.iter().cloned());
     rhs.push(b_g2);
     rhs.push(sigma);

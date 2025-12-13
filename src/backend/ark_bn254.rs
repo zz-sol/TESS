@@ -101,19 +101,19 @@ impl CurvePoint<BnFr> for ArkBnG1 {
     }
 
     fn add(&self, other: &Self) -> Self {
-        let mut tmp = self.0.clone();
-        tmp += other.0.clone();
+        let mut tmp = self.0;
+        tmp += other.0;
         ArkBnG1(tmp)
     }
 
     fn sub(&self, other: &Self) -> Self {
-        let mut tmp = self.0.clone();
-        tmp -= other.0.clone();
+        let mut tmp = self.0;
+        tmp -= other.0;
         ArkBnG1(tmp)
     }
 
     fn negate(&self) -> Self {
-        ArkBnG1(-self.0.clone())
+        ArkBnG1(-self.0)
     }
 
     fn mul_scalar(&self, scalar: &BnFr) -> Self {
@@ -121,7 +121,7 @@ impl CurvePoint<BnFr> for ArkBnG1 {
     }
 
     fn batch_normalize(points: &[Self]) -> Vec<Self::Affine> {
-        let projectives: Vec<BnG1> = points.iter().map(|p| p.0.clone()).collect();
+        let projectives: Vec<BnG1> = points.iter().map(|p| p.0).collect();
         BnG1::normalize_batch(&projectives)
             .into_iter()
             .map(ArkBnG1Affine)
@@ -150,19 +150,19 @@ impl CurvePoint<BnFr> for ArkBnG2 {
     }
 
     fn add(&self, other: &Self) -> Self {
-        let mut tmp = self.0.clone();
-        tmp += other.0.clone();
+        let mut tmp = self.0;
+        tmp += other.0;
         ArkBnG2(tmp)
     }
 
     fn sub(&self, other: &Self) -> Self {
-        let mut tmp = self.0.clone();
-        tmp -= other.0.clone();
+        let mut tmp = self.0;
+        tmp -= other.0;
         ArkBnG2(tmp)
     }
 
     fn negate(&self) -> Self {
-        ArkBnG2(-self.0.clone())
+        ArkBnG2(-self.0)
     }
 
     fn mul_scalar(&self, scalar: &BnFr) -> Self {
@@ -170,7 +170,7 @@ impl CurvePoint<BnFr> for ArkBnG2 {
     }
 
     fn batch_normalize(points: &[Self]) -> Vec<Self::Affine> {
-        let projectives: Vec<BnG2> = points.iter().map(|p| p.0.clone()).collect();
+        let projectives: Vec<BnG2> = points.iter().map(|p| p.0).collect();
         BnG2::normalize_batch(&projectives)
             .into_iter()
             .map(ArkBnG2Affine)
@@ -192,7 +192,7 @@ impl TargetGroup for ArkBnGt {
     }
 
     fn combine(&self, other: &Self) -> Self {
-        let mut tmp = self.0.clone();
+        let mut tmp = self.0;
         tmp += &other.0;
         ArkBnGt(tmp)
     }
@@ -268,7 +268,7 @@ fn setup_powers_bn(max_degree: usize, tau: &BnFr) -> Result<BnPowers, BackendErr
     let h = BnG2::generator();
 
     let mut powers_of_tau = vec![<BnFr as One>::one()];
-    let mut cur = tau.clone();
+    let mut cur = *tau;
     for _ in 0..max_degree {
         powers_of_tau.push(cur);
         cur *= tau;
@@ -333,7 +333,7 @@ impl PolynomialCommitment<ArkworksBn254> for BnKzg {
             .powers_of_g
             .iter()
             .take(degree + 1)
-            .map(|p| p.0.clone())
+            .map(|p| p.0)
             .collect();
 
         Ok(ArkBnG1(BnG1::msm_bigint(&bases, &scalars)))
@@ -353,7 +353,7 @@ impl PolynomialCommitment<ArkworksBn254> for BnKzg {
             .powers_of_h
             .iter()
             .take(degree + 1)
-            .map(|p| p.0.clone())
+            .map(|p| p.0)
             .collect();
 
         Ok(ArkBnG2(BnG2::msm_bigint(&bases, &scalars)))
@@ -370,7 +370,7 @@ impl MsmProvider<ArkworksBn254> for BnMsm {
         if bases.len() != scalars.len() {
             return Err(BackendError::Math("msm length mismatch"));
         }
-        let projectives: Vec<BnG1> = bases.iter().map(|p| p.0.clone()).collect();
+        let projectives: Vec<BnG1> = bases.iter().map(|p| p.0).collect();
         let affines = BnG1::normalize_batch(&projectives);
         let coeffs = convert_bn_scalars(scalars);
         Ok(ArkBnG1(BnG1::msm_bigint(&affines, &coeffs)))
@@ -380,7 +380,7 @@ impl MsmProvider<ArkworksBn254> for BnMsm {
         if bases.len() != scalars.len() {
             return Err(BackendError::Math("msm length mismatch"));
         }
-        let projectives: Vec<BnG2> = bases.iter().map(|p| p.0.clone()).collect();
+        let projectives: Vec<BnG2> = bases.iter().map(|p| p.0).collect();
         let affines = BnG2::normalize_batch(&projectives);
         let coeffs = convert_bn_scalars(scalars);
         Ok(ArkBnG2(BnG2::msm_bigint(&affines, &coeffs)))
@@ -402,24 +402,15 @@ impl PairingBackend for ArkworksBn254 {
     type Msm = BnMsm;
 
     fn pairing(g1: &Self::G1, g2: &Self::G2) -> Self::Target {
-        ArkBnGt(Bn254::pairing(
-            g1.0.clone().into_affine(),
-            g2.0.clone().into_affine(),
-        ))
+        ArkBnGt(Bn254::pairing(g1.0.into_affine(), g2.0.into_affine()))
     }
 
     fn multi_pairing(g1: &[Self::G1], g2: &[Self::G2]) -> Result<Self::Target, BackendError> {
         if g1.len() != g2.len() {
             return Err(BackendError::Math("pairing length mismatch"));
         }
-        let lhs = g1
-            .iter()
-            .map(|p| p.0.clone().into_affine())
-            .collect::<Vec<_>>();
-        let rhs = g2
-            .iter()
-            .map(|p| p.0.clone().into_affine())
-            .collect::<Vec<_>>();
+        let lhs = g1.iter().map(|p| p.0.into_affine()).collect::<Vec<_>>();
+        let rhs = g2.iter().map(|p| p.0.into_affine()).collect::<Vec<_>>();
         Ok(ArkBnGt(Bn254::multi_pairing(lhs, rhs)))
     }
 }
