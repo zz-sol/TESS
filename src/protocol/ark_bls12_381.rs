@@ -336,12 +336,18 @@ fn aggregate_public_key(
         ask = ask.add(&pk.lagrange_li);
     }
 
-    let mut lagrange_row_sums = vec![ArkG1::identity(); parties];
-    for (idx, row) in lagrange_row_sums.iter_mut().enumerate() {
-        for pk in public_keys {
-            if let Some(val) = pk.lagrange_li_lj_z.get(idx) {
-                *row = row.add(val);
-            }
+    let mut lagrange_row_sums = Vec::with_capacity(parties);
+    for idx in 0..parties {
+        let bases: Vec<ArkG1> = public_keys
+            .iter()
+            .filter_map(|pk| pk.lagrange_li_lj_z.get(idx).cloned())
+            .collect();
+        if bases.is_empty() {
+            lagrange_row_sums.push(ArkG1::identity());
+        } else {
+            let scalars = vec![BlsFr::one(); bases.len()];
+            let sum = BlsMsm::msm_g1(&bases, &scalars).map_err(Error::Backend)?;
+            lagrange_row_sums.push(sum);
         }
     }
 

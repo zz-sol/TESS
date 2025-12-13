@@ -479,12 +479,16 @@ impl PairingBackend for BlstBackend {
         if g1.len() != g2.len() {
             return Err(BackendError::Math("pairing length mismatch"));
         }
-        let mut g1_affine = Vec::with_capacity(g1.len());
-        let mut g2_prepared = Vec::with_capacity(g1.len());
-        for (lhs, rhs) in g1.iter().zip(g2.iter()) {
-            g1_affine.push(lhs.to_affine());
-            g2_prepared.push(G2Prepared::from(rhs.to_affine()));
-        }
+        let lhs_proj: Vec<G1Projective> = g1.iter().map(|p| p.0).collect();
+        let rhs_proj: Vec<G2Projective> = g2.iter().map(|p| p.0).collect();
+        let mut g1_affine = vec![G1Affine::identity(); lhs_proj.len()];
+        let mut g2_affine = vec![G2Affine::identity(); rhs_proj.len()];
+        G1Projective::batch_normalize(&lhs_proj, &mut g1_affine);
+        G2Projective::batch_normalize(&rhs_proj, &mut g2_affine);
+        let g2_prepared: Vec<G2Prepared> = g2_affine
+            .iter()
+            .map(|aff| G2Prepared::from(*aff))
+            .collect();
         let terms: Vec<_> = g1_affine.iter().zip(g2_prepared.iter()).collect();
         let result = Bls12::multi_miller_loop(&terms).final_exponentiation();
         Ok(BlstGt(result))

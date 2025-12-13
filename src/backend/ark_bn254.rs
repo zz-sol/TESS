@@ -397,8 +397,10 @@ impl PairingBackend for ArkworksBn254 {
         if g1.len() != g2.len() {
             return Err(BackendError::Math("pairing length mismatch"));
         }
-        let lhs = g1.iter().map(|p| p.0.into_affine()).collect::<Vec<_>>();
-        let rhs = g2.iter().map(|p| p.0.into_affine()).collect::<Vec<_>>();
+        let lhs_proj: Vec<BnG1> = g1.iter().map(|p| p.0).collect();
+        let rhs_proj: Vec<BnG2> = g2.iter().map(|p| p.0).collect();
+        let lhs = BnG1::normalize_batch(&lhs_proj);
+        let rhs = BnG2::normalize_batch(&rhs_proj);
         Ok(ArkBnGt(Bn254::multi_pairing(lhs, rhs)))
     }
 }
