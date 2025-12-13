@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::errors::Error;
+use crate::errors::{BackendError, Error};
 
 /// Supported pairing-friendly curves.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -27,6 +27,41 @@ impl BackendConfig {
     pub fn new(backend: BackendId, curve: CurveId) -> Self {
         Self { backend, curve }
     }
+
+    pub fn ensure_supported(&self) -> Result<(), BackendError> {
+        match (self.backend, self.curve) {
+            (BackendId::Arkworks, CurveId::Bls12_381) => {
+                if cfg!(feature = "ark_bls12381") {
+                    Ok(())
+                } else {
+                    Err(BackendError::UnsupportedFeature(
+                        "compile with `ark_bls12381` feature to use Arkworks BLS12-381",
+                    ))
+                }
+            }
+            (BackendId::Arkworks, CurveId::Bn254) => {
+                if cfg!(feature = "ark_bn254") {
+                    Ok(())
+                } else {
+                    Err(BackendError::UnsupportedFeature(
+                        "compile with `ark_bn254` feature to use Arkworks BN254",
+                    ))
+                }
+            }
+            (BackendId::Blst, CurveId::Bls12_381) => {
+                if cfg!(feature = "blst") {
+                    Ok(())
+                } else {
+                    Err(BackendError::UnsupportedFeature(
+                        "compile with `blst` feature to use the blstrs backend",
+                    ))
+                }
+            }
+            (BackendId::Blst, CurveId::Bn254) => Err(BackendError::UnsupportedCurve(
+                "bn254 is not yet supported by the blstrs backend",
+            )),
+        }
+    }
 }
 
 /// High-level parameters for the threshold encryption scheme.
@@ -36,10 +71,12 @@ pub struct ThresholdParameters {
     pub threshold: usize,
     pub chunk_size: usize,
     pub backend: BackendConfig,
+    pub kzg_tau: Option<Vec<u8>>,
 }
 
 impl ThresholdParameters {
     pub fn validate(&self) -> Result<(), Error> {
+        self.backend.ensure_supported().map_err(Error::Backend)?;
         if self.parties < 2 {
             return Err(Error::InvalidConfig(
                 "need at least two parties for threshold encryption".into(),

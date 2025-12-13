@@ -135,9 +135,11 @@ pub mod arkworks {
 
     use crate::arkworks_backend::{ArkG1, ArkG2, ArkworksBls12, BlsKzg, BlsMsm, BlsPowers};
     use crate::backend::{CurvePoint, MsmProvider, TargetGroup};
+    use crate::config::{BackendId, CurveId};
     use crate::errors::{BackendError, Error};
     use crate::lagrange::{interp_mostly_zero, lagrange_polys};
     use ark_ff::{Field, One, Zero};
+    use ark_serialize::CanonicalDeserialize;
     use ark_std::UniformRand;
 
     #[derive(Debug, Default)]
@@ -169,9 +171,14 @@ pub mod arkworks {
             params: &ThresholdParameters,
         ) -> Result<KeyMaterial<ArkworksBls12>, Error> {
             params.validate()?;
+            ensure_supported_config(params)?;
             let parties = params.parties;
 
-            let tau = self.sample_tau(rng);
+            let tau = if let Some(bytes) = params.kzg_tau.as_ref() {
+                parse_tau(bytes)?
+            } else {
+                self.sample_tau(rng)
+            };
             let kzg_params = BlsKzg::setup(parties, &tau).map_err(|err| Error::Backend(err))?;
 
             let lagranges = lagrange_polys::<BlsFr>(parties).map_err(Error::Backend)?;
@@ -201,14 +208,11 @@ pub mod arkworks {
             public_keys: &[PublicKey<ArkworksBls12>],
         ) -> Result<AggregateKey<ArkworksBls12>, Error> {
             params_cfg.validate()?;
-            if params_cfg.parties != public_keys.len() {
-                return Err(Error::InvalidConfig(
-                    "public key list must match parties".into(),
-                ));
-            }
-            Err(Error::Backend(BackendError::UnsupportedFeature(
-                "aggregate_public_key without KZG params not yet supported",
-            )))
+            ensure_supported_config(params_cfg)?;
+            let tau = load_tau_from_params(params_cfg)?;
+            let kzg_params =
+                BlsKzg::setup(params_cfg.parties, &tau).map_err(|err| Error::Backend(err))?;
+            aggregate_public_key(public_keys, &kzg_params, params_cfg.parties)
         }
 
         fn encrypt<R: RngCore + ?Sized>(
@@ -219,6 +223,7 @@ pub mod arkworks {
             payload: &[u8],
         ) -> Result<Ciphertext<ArkworksBls12>, Error> {
             params_cfg.validate()?;
+            ensure_supported_config(params_cfg)?;
             let threshold = params_cfg.threshold;
             let kzg_params = &agg_key.commitment_params;
 
@@ -324,6 +329,33 @@ pub mod arkworks {
         ) -> Result<DecryptionResult<ArkworksBls12>, Error> {
             aggregate_decrypt(ciphertext, partials, selector, agg_key)
         }
+    }
+
+    fn ensure_supported_config(params: &ThresholdParameters) -> Result<(), Error> {
+        if params.backend.backend != BackendId::Arkworks {
+            return Err(Error::Backend(BackendError::UnsupportedFeature(
+                "SilentThresholdScheme is only implemented for the Arkworks backend",
+            )));
+        }
+        if params.backend.curve != CurveId::Bls12_381 {
+            return Err(Error::Backend(BackendError::UnsupportedCurve(
+                "SilentThresholdScheme currently targets BLS12-381",
+            )));
+        }
+        Ok(())
+    }
+
+    fn parse_tau(bytes: &[u8]) -> Result<BlsFr, Error> {
+        BlsFr::deserialize_compressed(bytes)
+            .map_err(|_| Error::InvalidConfig("invalid trusted tau encoding".into()))
+    }
+
+    fn load_tau_from_params(params: &ThresholdParameters) -> Result<BlsFr, Error> {
+        let bytes = params
+            .kzg_tau
+            .as_ref()
+            .ok_or_else(|| Error::InvalidConfig("missing trusted tau in parameters".into()))?;
+        parse_tau(bytes)
     }
 
     fn derive_public_key(
@@ -596,7 +628,7 @@ pub mod arkworks {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ark_bls12381"))]
 mod tests {
     use super::arkworks::SilentThresholdScheme;
     use super::*;
@@ -612,6 +644,7 @@ mod tests {
             threshold: 4,
             chunk_size: 32,
             backend: BackendConfig::new(BackendId::Arkworks, CurveId::Bls12_381),
+            kzg_tau: None,
         }
     }
 
