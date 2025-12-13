@@ -74,6 +74,6 @@ impl ProtocolBackend for BlstBackend {
     }
 
     fn pairing_generator(params: &BlstPowers) -> Self::Target {
-        BlstGt(params.e_gh.clone())
+        BlstGt(params.e_gh)
     }
 }
