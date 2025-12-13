@@ -5,133 +5,183 @@ pub mod ark_bn254;
 #[cfg(feature = "blst")]
 pub mod blst_bls12_381;
 
-#[cfg(any(feature = "ark_bls12381", feature = "ark_bn254"))]
-mod shared {
-    use ark_ff::{FftField, Field, batch_inversion};
-    use ark_poly::{
-        DenseUVPolynomial, EvaluationDomain, Evaluations, Radix2EvaluationDomain,
-        univariate::DensePolynomial,
-    };
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg};
 
-    use crate::errors::BackendError;
+use crate::backend::FieldElement;
+use crate::errors::BackendError;
 
-    pub fn lagrange_poly<F: FftField>(
-        n: usize,
-        index: usize,
-    ) -> Result<DensePolynomial<F>, BackendError> {
-        if index >= n {
-            return Err(BackendError::Math("lagrange index out of range"));
-        }
-        if !n.is_power_of_two() {
-            return Err(BackendError::Math("domain size must be a power of two"));
-        }
-        let domain: Radix2EvaluationDomain<F> = Radix2EvaluationDomain::new(n)
-            .ok_or(BackendError::Math("invalid evaluation domain"))?;
-        let mut evals = vec![F::zero(); n];
-        evals[index] = F::one();
-        let evaluations = Evaluations::from_vec_and_domain(evals, domain);
-        Ok(evaluations.interpolate())
+/// Trait capturing the minimal field functionality required by the Lagrange helpers.
+pub trait LagrangeField:
+    FieldElement
+    + From<u64>
+    + Add<Output = Self>
+    + AddAssign
+    + Mul<Output = Self>
+    + MulAssign
+    + Neg<Output = Self>
+    + PartialEq
+{
+    /// Two-adicity of the field multiplicative group.
+    const TWO_ADICITY: u32;
+
+    /// Generator of the 2^TWO_ADICITY subgroup.
+    fn two_adic_root_of_unity() -> Self;
+}
+
+fn ensure_domain_size<F: LagrangeField>(n: usize) -> Result<(), BackendError> {
+    if n == 0 {
+        return Err(BackendError::Math("domain size must be non-zero"));
+    }
+    if !n.is_power_of_two() {
+        return Err(BackendError::Math("domain size must be a power of two"));
+    }
+    if n.trailing_zeros() > F::TWO_ADICITY {
+        return Err(BackendError::Math("domain size exceeds field two-adicity"));
+    }
+    Ok(())
+}
+
+fn generator_for_size<F: LagrangeField>(n: usize) -> Result<F, BackendError> {
+    ensure_domain_size::<F>(n)?;
+    let log_n = n.trailing_zeros();
+    let shift = F::TWO_ADICITY - log_n;
+    let mut exp = [0u64; 4];
+    exp[0] = 1u64 << shift;
+    Ok(F::two_adic_root_of_unity().pow(&exp))
+}
+
+fn batch_inversion<F: LagrangeField>(values: &mut [F]) -> Result<(), BackendError> {
+    if values.is_empty() {
+        return Ok(());
+    }
+    let mut prefix = vec![F::one(); values.len()];
+    let mut acc = F::one();
+    for (idx, value) in values.iter().enumerate() {
+        prefix[idx] = acc.clone();
+        acc *= value.clone();
+    }
+    let inv = acc
+        .invert()
+        .ok_or(BackendError::Math("batch inversion failed"))?;
+    let mut suffix = inv;
+    for (value, pref) in values.iter_mut().zip(prefix.into_iter()).rev() {
+        let tmp = value.clone();
+        *value = pref * suffix.clone();
+        suffix *= tmp;
+    }
+    Ok(())
+}
+
+pub(super) fn lagrange_poly_impl<F, P, PF>(
+    n: usize,
+    index: usize,
+    poly_from_coeffs: PF,
+) -> Result<P, BackendError>
+where
+    F: LagrangeField,
+    PF: Fn(Vec<F>) -> P + Copy,
+{
+    if index >= n {
+        return Err(BackendError::Math("lagrange index out of range"));
+    }
+    let polys = lagrange_polys_impl::<F, P, PF>(n, poly_from_coeffs)?;
+    polys
+        .into_iter()
+        .nth(index)
+        .ok_or(BackendError::Math("lagrange polynomial missing"))
+}
+
+pub(super) fn lagrange_polys_impl<F, P, PF>(
+    n: usize,
+    poly_from_coeffs: PF,
+) -> Result<Vec<P>, BackendError>
+where
+    F: LagrangeField,
+    PF: Fn(Vec<F>) -> P + Copy,
+{
+    ensure_domain_size::<F>(n)?;
+    let omega = generator_for_size::<F>(n)?;
+    let omega_inv = omega
+        .invert()
+        .ok_or(BackendError::Math("invalid generator inversion"))?;
+    let n_scalar = F::from(n as u64);
+
+    let mut omega_inv_pows = Vec::with_capacity(n);
+    let mut cur = F::one();
+    for _ in 0..n {
+        omega_inv_pows.push(cur.clone());
+        cur *= omega_inv.clone();
     }
 
-    pub fn lagrange_polys<F: FftField>(n: usize) -> Result<Vec<DensePolynomial<F>>, BackendError> {
-        if !n.is_power_of_two() {
-            return Err(BackendError::Math("domain size must be a power of two"));
-        }
-        let domain: Radix2EvaluationDomain<F> = Radix2EvaluationDomain::new(n)
-            .ok_or(BackendError::Math("invalid evaluation domain"))?;
-        let omega_inv = domain
-            .group_gen
-            .inverse()
-            .ok_or(BackendError::Math("invalid group generator"))?;
-        let n_scalar = F::from(n as u64);
+    let mut denominators: Vec<F> = omega_inv_pows
+        .iter()
+        .map(|w| {
+            let mut denom = w.clone();
+            denom *= n_scalar.clone();
+            denom
+        })
+        .collect();
+    batch_inversion(&mut denominators)?;
 
-        let mut omega_inv_pows = Vec::with_capacity(n);
-        let mut cur = F::one();
+    let mut polys = Vec::with_capacity(n);
+    for (omega_i_inv, denom_inv) in omega_inv_pows.iter().zip(denominators.iter()) {
+        let mut coeffs = Vec::with_capacity(n);
+        let mut power = omega_i_inv.clone();
         for _ in 0..n {
-            omega_inv_pows.push(cur);
-            cur *= omega_inv;
+            let mut term = power.clone();
+            term *= denom_inv.clone();
+            coeffs.push(term);
+            power *= omega_i_inv.clone();
         }
-
-        let mut denominators: Vec<F> = omega_inv_pows.iter().map(|w| *w * n_scalar).collect();
-        batch_inversion(&mut denominators);
-
-        let mut polys = Vec::with_capacity(n);
-        for (omega_i_inv, denom_inv) in omega_inv_pows.iter().zip(denominators.iter()) {
-            let mut coeffs = Vec::with_capacity(n);
-            let mut power = *omega_i_inv;
-            for _ in 0..n {
-                coeffs.push(power * denom_inv);
-                power *= *omega_i_inv;
-            }
-            polys.push(DensePolynomial::from_coefficients_vec(coeffs));
-        }
-
-        Ok(polys)
+        polys.push(poly_from_coeffs(coeffs));
     }
-
-    pub fn interp_mostly_zero<F: Field>(
-        eval: F,
-        points: &[F],
-    ) -> Result<DensePolynomial<F>, BackendError> {
-        if points.is_empty() {
-            return Ok(DensePolynomial::from_coefficients_vec(vec![F::one()]));
-        }
-
-        let mut coeffs = vec![F::one()];
-        for &point in points.iter().skip(1) {
-            let neg_point = -point;
-            coeffs.push(F::zero());
-            for i in (0..coeffs.len() - 1).rev() {
-                let (head, tail) = coeffs.split_at_mut(i + 1);
-                let coef = &mut head[i];
-                let next = &mut tail[0];
-                *next += *coef;
-                *coef *= neg_point;
-            }
-        }
-
-        let mut scale = *coeffs.last().unwrap();
-        for coeff in coeffs.iter().rev().skip(1) {
-            scale = scale * points[0] + coeff;
-        }
-        let scale_inv = scale
-            .inverse()
-            .ok_or(BackendError::Math("interpolation scale inversion failed"))?;
-
-        for coeff in coeffs.iter_mut() {
-            *coeff *= eval * scale_inv;
-        }
-
-        Ok(DensePolynomial::from_coefficients_vec(coeffs))
-    }
+    Ok(polys)
 }
 
-#[cfg(any(feature = "ark_bls12381", feature = "ark_bn254"))]
-macro_rules! impl_lagrange_backend {
-    ($field:ty) => {
-        use ark_poly::univariate::DensePolynomial;
+pub(super) fn interp_mostly_zero_impl<F, P, PF>(
+    eval: F,
+    points: &[F],
+    poly_from_coeffs: PF,
+) -> Result<P, BackendError>
+where
+    F: LagrangeField,
+    PF: Fn(Vec<F>) -> P,
+{
+    if points.is_empty() {
+        return Ok(poly_from_coeffs(vec![F::one()]));
+    }
 
-        use crate::errors::BackendError;
-
-        pub fn lagrange_poly(
-            n: usize,
-            index: usize,
-        ) -> Result<DensePolynomial<$field>, BackendError> {
-            super::shared::lagrange_poly::<$field>(n, index)
+    let mut coeffs = vec![F::one()];
+    for point in points.iter().skip(1) {
+        let neg_point = -point.clone();
+        coeffs.push(F::zero());
+        for i in (0..coeffs.len() - 1).rev() {
+            let (head, tail) = coeffs.split_at_mut(i + 1);
+            let coef = &mut head[i];
+            let next = &mut tail[0];
+            let coef_clone = coef.clone();
+            *next += coef_clone;
+            *coef *= neg_point.clone();
         }
+    }
 
-        pub fn lagrange_polys(n: usize) -> Result<Vec<DensePolynomial<$field>>, BackendError> {
-            super::shared::lagrange_polys::<$field>(n)
-        }
+    let mut scale = coeffs
+        .last()
+        .cloned()
+        .ok_or(BackendError::Math("interpolation scale missing"))?;
+    let first_point = points[0].clone();
+    for coeff in coeffs.iter().rev().skip(1) {
+        scale = scale * first_point.clone() + coeff.clone();
+    }
+    let scale_inv = scale
+        .invert()
+        .ok_or(BackendError::Math("interpolation scale inversion failed"))?;
 
-        pub fn interp_mostly_zero(
-            eval: $field,
-            points: &[$field],
-        ) -> Result<DensePolynomial<$field>, BackendError> {
-            super::shared::interp_mostly_zero(eval, points)
-        }
-    };
+    let mut factor = eval;
+    factor *= scale_inv;
+    for coeff in coeffs.iter_mut() {
+        *coeff *= factor.clone();
+    }
+
+    Ok(poly_from_coeffs(coeffs))
 }
-
-#[cfg(any(feature = "ark_bls12381", feature = "ark_bn254"))]
-pub(super) use impl_lagrange_backend;
