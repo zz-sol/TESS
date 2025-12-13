@@ -1,12 +1,6 @@
-#[cfg(feature = "ark_bls12381")]
 use ark_bls12_381::{
     Bls12_381, Fr as BlsFr, G1Affine as RawG1Affine, G1Projective as RawG1,
     G2Affine as RawG2Affine, G2Projective as RawG2,
-};
-#[cfg(feature = "ark_bn254")]
-use ark_bn254::{
-    Bn254, Fr as BnFr, G1Affine as BnG1Affine, G1Projective as BnG1, G2Affine as BnG2Affine,
-    G2Projective as BnG2,
 };
 use ark_ec::{
     AffineRepr, CurveGroup, PrimeGroup,
@@ -27,52 +21,10 @@ use crate::backend::{
     PolynomialCommitment, TargetGroup,
 };
 use crate::errors::BackendError;
-
-fn sample_field<F: PrimeField, R: RngCore + ?Sized>(rng: &mut R) -> F {
-    let mut bytes = vec![0u8; ((F::MODULUS_BIT_SIZE + 7) / 8) as usize];
-    rng.fill_bytes(&mut bytes);
-    F::from_le_bytes_mod_order(&bytes)
-}
+use super::sample_field;
 
 #[cfg(feature = "ark_bls12381")]
 impl FieldElement for BlsFr {
-    type Repr = Vec<u8>;
-
-    fn zero() -> Self {
-        Zero::zero()
-    }
-
-    fn one() -> Self {
-        One::one()
-    }
-
-    fn random<R: RngCore + ?Sized>(rng: &mut R) -> Self {
-        sample_field(rng)
-    }
-
-    fn invert(&self) -> Option<Self> {
-        self.inverse()
-    }
-
-    fn pow(&self, exp: &[u64; 4]) -> Self {
-        Field::pow(self, exp)
-    }
-
-    fn to_repr(&self) -> Self::Repr {
-        let mut bytes = Vec::new();
-        self.serialize_compressed(&mut bytes)
-            .expect("scalar serialization");
-        bytes
-    }
-
-    fn from_repr(repr: &Self::Repr) -> Result<Self, BackendError> {
-        Self::deserialize_compressed(repr.as_slice())
-            .map_err(|_| BackendError::Serialization("invalid scalar bytes"))
-    }
-}
-
-#[cfg(feature = "ark_bn254")]
-impl FieldElement for BnFr {
     type Repr = Vec<u8>;
 
     fn zero() -> Self {
@@ -471,4 +423,3 @@ impl PairingBackend for ArkworksBls12 {
         Ok(ArkGt(Bls12_381::multi_pairing(lhs, rhs)))
     }
 }
-

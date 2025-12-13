@@ -1,4 +1,4 @@
-use super::*;
+use super::super::*;
 use ark_bls12_381::Fr as BlsFr;
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{DenseUVPolynomial, EvaluationDomain, Radix2EvaluationDomain};
