@@ -1,6 +1,7 @@
-use blstrs::{Compress, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar, pairing};
+use blstrs::{Bls12, Compress, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar};
 use ff::{Field, PrimeField};
-use group::{Curve, Group, prime::PrimeCurveAffine};
+use group::{prime::PrimeCurveAffine, Curve, Group};
+use pairing::{MillerLoopResult as PairingMillerLoopResult, MultiMillerLoop};
 use rand_core::RngCore;
 use std::io::Cursor;
 
@@ -459,19 +460,26 @@ impl PairingBackend for BlstBackend {
     type Msm = BlstMsm;
 
     fn pairing(g1: &Self::G1, g2: &Self::G2) -> Self::Target {
-        BlstGt(pairing(&g1.to_affine(), &g2.to_affine()))
+        BlstGt(blstrs::pairing(&g1.to_affine(), &g2.to_affine()))
     }
 
     fn multi_pairing(g1: &[Self::G1], g2: &[Self::G2]) -> Result<Self::Target, BackendError> {
         if g1.len() != g2.len() {
             return Err(BackendError::Math("pairing length mismatch"));
         }
-        let mut acc = BlstGt::identity();
+        let mut g1_affine = Vec::with_capacity(g1.len());
+        let mut g2_prepared = Vec::with_capacity(g1.len());
         for (lhs, rhs) in g1.iter().zip(g2.iter()) {
-            let term = BlstGt(pairing(&lhs.to_affine(), &rhs.to_affine()));
-            acc = acc.combine(&term);
+            g1_affine.push(lhs.to_affine());
+            g2_prepared.push(G2Prepared::from(rhs.to_affine()));
         }
-        Ok(acc)
+        let terms: Vec<_> = g1_affine
+            .iter()
+            .zip(g2_prepared.iter())
+            .map(|(lhs, rhs)| (lhs, rhs))
+            .collect();
+        let result = Bls12::multi_miller_loop(&terms).final_exponentiation();
+        Ok(BlstGt(result))
     }
 }
 

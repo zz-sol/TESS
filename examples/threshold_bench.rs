@@ -7,8 +7,8 @@ fn run_arkworks_example() -> Result<(), Box<dyn std::error::Error>> {
     use TESS::protocol::arkworks::SilentThresholdScheme;
     use TESS::ThresholdScheme;
 
-    const PARTIES: usize = 1 << 11; // 2048
-    const THRESHOLD: usize = 1400;
+    const PARTIES: usize = 1 << 4; // 2048
+    const THRESHOLD: usize = 3;
 
     let mut rng = StdRng::seed_from_u64(42);
     let scheme = SilentThresholdScheme::default();

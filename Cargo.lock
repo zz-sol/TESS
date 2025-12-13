@@ -18,6 +18,7 @@ dependencies = [
  "criterion",
  "ff",
  "group",
+ "pairing",
  "rand",
  "rand_core",
  "serde",
