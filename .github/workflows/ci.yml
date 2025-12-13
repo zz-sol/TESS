@@ -7,21 +7,56 @@ on:
     branches: ["main"]
 
 jobs:
-  cargo-check:
+  fmt:
     runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: default
-            cmd: cargo check
+            args: ""
           - name: ark-bn254
-            cmd: cargo check --no-default-features --features ark_bn254
+            args: --no-default-features --features ark_bn254
           - name: ark-bls12381
-            cmd: cargo check --no-default-features --features ark_bls12381
+            args: --no-default-features --features ark_bls12381
     steps:
       - uses: actions/checkout@v4
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Run ${{ matrix.name }} checks
-        run: ${{ matrix.cmd }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Clippy (${{ matrix.name }})
+        run: cargo clippy ${{ matrix.args }} --all-targets -- -D warnings
+
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            args: ""
+          - name: ark-bn254
+            args: --no-default-features --features ark_bn254
+          - name: ark-bls12381
+            args: --no-default-features --features ark_bls12381
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo test (${{ matrix.name }})
+        run: cargo test ${{ matrix.args }}

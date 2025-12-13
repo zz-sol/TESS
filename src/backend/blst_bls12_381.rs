@@ -196,11 +196,13 @@ impl TargetGroup for BlstGt {
     }
 
     fn mul_scalar(&self, scalar: &Self::Scalar) -> Self {
-        BlstGt((&self.0) * scalar)
+        BlstGt(self.0 * scalar)
     }
 
     fn combine(&self, other: &Self) -> Self {
-        BlstGt(&self.0 + &other.0)
+        let mut tmp = self.0;
+        tmp += &other.0;
+        BlstGt(tmp)
     }
 
     fn to_repr(&self) -> Self::Repr {
@@ -256,7 +258,7 @@ impl Radix2EvaluationDomain {
         }
         let mut exp = [0u64; 4];
         exp[0] = 1u64 << (32 - log_size);
-        let group_gen = Scalar::ROOT_OF_UNITY.pow_vartime(&exp);
+        let group_gen = Scalar::ROOT_OF_UNITY.pow_vartime(exp);
         let group_gen_inv = Option::<Scalar>::from(Field::invert(&group_gen))
             .expect("root of unity must be invertible");
         Some(Radix2EvaluationDomain {
@@ -296,7 +298,7 @@ impl Radix2EvaluationDomain {
             let stride = self.size / len;
             let mut exp = [0u64; 4];
             exp[0] = stride as u64;
-            let omega_step = generator.pow_vartime(&exp);
+            let omega_step = generator.pow_vartime(exp);
             for start in (0..n).step_by(len) {
                 let mut omega = Scalar::ONE;
                 for j in 0..half {
@@ -449,7 +451,7 @@ impl MsmProvider<BlstBackend> for BlstMsm {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BlstBackend;
 
 impl PairingBackend for BlstBackend {
@@ -475,11 +477,7 @@ impl PairingBackend for BlstBackend {
             g1_affine.push(lhs.to_affine());
             g2_prepared.push(G2Prepared::from(rhs.to_affine()));
         }
-        let terms: Vec<_> = g1_affine
-            .iter()
-            .zip(g2_prepared.iter())
-            .map(|(lhs, rhs)| (lhs, rhs))
-            .collect();
+        let terms: Vec<_> = g1_affine.iter().zip(g2_prepared.iter()).collect();
         let result = Bls12::multi_miller_loop(&terms).final_exponentiation();
         Ok(BlstGt(result))
     }

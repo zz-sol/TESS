@@ -12,7 +12,7 @@ use crate::errors::{BackendError, Error};
 use crate::lagrange::blst_bls12_381::{interp_mostly_zero, lagrange_polys};
 use ff::Field;
 
-const PAYLOAD_KDF_DOMAIN: &[u8] = b"TESS::threshold::payload";
+const PAYLOAD_KDF_DOMAIN: &[u8] = b"tess::threshold::payload";
 
 fn derive_keystream<B: PairingBackend>(secret: &B::Target, len: usize) -> Vec<u8> {
     if len == 0 {
@@ -86,8 +86,9 @@ impl ThresholdScheme<BlstBackend> for SilentThresholdBlst {
         };
         let kzg_params = BlstKzg::setup(parties, &tau).map_err(Error::Backend)?;
         let lagranges = lagrange_polys(parties).map_err(Error::Backend)?;
-        let domain = Radix2EvaluationDomain::new(parties)
-            .ok_or_else(|| Error::Backend(BackendError::Math("invalid evaluation domain")))?;
+        let domain = Radix2EvaluationDomain::new(parties).ok_or(Error::Backend(
+            BackendError::Math("invalid evaluation domain"),
+        ))?;
         let secret_keys = self.generate_secret_keys(rng, parties);
         let public_keys = secret_keys
             .iter()
@@ -147,7 +148,7 @@ impl ThresholdScheme<BlstBackend> for SilentThresholdBlst {
         let g = BlstG1::from_affine(
             kzg_params
                 .powers_of_g
-                .get(0)
+                .first()
                 .ok_or(BackendError::Math("missing g generator"))?,
         );
         let g_tau_t = BlstG1::from_affine(
@@ -159,7 +160,7 @@ impl ThresholdScheme<BlstBackend> for SilentThresholdBlst {
         let h = BlstG2::from_affine(
             kzg_params
                 .powers_of_h
-                .get(0)
+                .first()
                 .ok_or(BackendError::Math("missing h generator"))?,
         );
         let h_tau = BlstG2::from_affine(
@@ -327,7 +328,7 @@ fn divide_by_vanishing(
         quotient[q_idx] = lead;
         coeffs.pop();
         coeffs[q_idx] += lead;
-        while coeffs.last() == Some(&Scalar::ZERO) && coeffs.len() > 0 {
+        while coeffs.last() == Some(&Scalar::ZERO) && !coeffs.is_empty() {
             coeffs.pop();
         }
     }
@@ -429,7 +430,7 @@ fn aggregate_public_key(
     let g2_tau_n = params
         .powers_of_h
         .get(parties)
-        .ok_or_else(|| Error::Backend(BackendError::Math("missing h^tau^n")))?;
+        .ok_or(Error::Backend(BackendError::Math("missing h^tau^n")))?;
     let z_g2 = BlstG2::from_affine(g2_tau_n).sub(&BlstG2::generator());
 
     Ok(AggregateKey {
@@ -437,7 +438,7 @@ fn aggregate_public_key(
         ask,
         z_g2,
         lagrange_row_sums,
-        precomputed_pairing: BlstGt(params.e_gh.clone()),
+        precomputed_pairing: BlstGt(params.e_gh),
         commitment_params: params.clone(),
     })
 }
@@ -479,8 +480,9 @@ fn aggregate_decrypt(
         return Err(Error::NotEnoughShares { required, provided });
     }
 
-    let domain = Radix2EvaluationDomain::new(n)
-        .ok_or_else(|| Error::Backend(BackendError::Math("invalid evaluation domain")))?;
+    let domain = Radix2EvaluationDomain::new(n).ok_or(Error::Backend(BackendError::Math(
+        "invalid evaluation domain",
+    )))?;
     let domain_elements = domain.elements();
 
     let mut points = vec![domain_elements[0]];
@@ -518,8 +520,9 @@ fn aggregate_decrypt(
     let bhat = DensePolynomial::from_coefficients_vec(bhat_coeffs);
     let bhat_g1 = BlstKzg::commit_g1(&agg_key.commitment_params, &bhat).map_err(Error::Backend)?;
 
-    let n_inv = Option::<Scalar>::from(Scalar::from(n as u64).invert())
-        .ok_or_else(|| Error::Backend(BackendError::Math("domain size inversion failed")))?;
+    let n_inv = Option::<Scalar>::from(Scalar::from(n as u64).invert()).ok_or(Error::Backend(
+        BackendError::Math("domain size inversion failed"),
+    ))?;
 
     let scalars: Vec<Scalar> = parties.iter().map(|&i| b_evals[i]).collect();
 
@@ -574,16 +577,17 @@ fn aggregate_decrypt(
         BlstMsm::msm_g1(&bases, &scalars).map_err(Error::Backend)?
     };
 
-    let mut lhs = Vec::new();
-    lhs.push(apk.negate());
-    lhs.push(qz.negate());
-    lhs.push(qx.negate());
-    lhs.push(qhatx);
-    lhs.push(bhat_g1.negate());
-    lhs.push(q0_g1.negate());
+    let mut lhs = vec![
+        apk.negate(),
+        qz.negate(),
+        qx.negate(),
+        qhatx,
+        bhat_g1.negate(),
+        q0_g1.negate(),
+    ];
     lhs.extend(ciphertext.proof_g1.iter().cloned());
 
-    let mut rhs = Vec::new();
+    let mut rhs = Vec::with_capacity(ciphertext.proof_g2.len() + 2);
     rhs.extend(ciphertext.proof_g2.iter().cloned());
     rhs.push(b_g2);
     rhs.push(sigma);

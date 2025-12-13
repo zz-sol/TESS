@@ -1,13 +1,13 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rand::{rngs::StdRng, SeedableRng};
-use TESS::MsmProvider;
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use rand::{SeedableRng, rngs::StdRng};
+use tess::MsmProvider;
 
 #[cfg(feature = "blst")]
 fn bench_blst(c: &mut Criterion) {
+    use blstrs::{G1Projective, Scalar};
     use ff::Field;
     use group::Group;
-    use TESS::blst_backend::{BlstG1, BlstMsm};
-    use blstrs::{G1Projective, Scalar};
+    use tess::blst_backend::{BlstG1, BlstMsm};
 
     let mut rng = StdRng::seed_from_u64(42);
     let size = 1 << 10; // 1024 terms
@@ -28,7 +28,7 @@ fn bench_blst(c: &mut Criterion) {
 fn bench_arkworks(c: &mut Criterion) {
     use ark_bls12_381::{Fr as BlsFr, G1Projective};
     use ark_std::UniformRand;
-    use TESS::arkworks_backend::{ArkG1, BlsMsm};
+    use tess::backend::{ArkG1, BlsMsm};
 
     let mut rng = StdRng::seed_from_u64(42);
     let size = 1 << 10;

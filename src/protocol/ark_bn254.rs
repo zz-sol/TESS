@@ -15,7 +15,7 @@ use ark_serialize::CanonicalDeserialize;
 use ark_std::UniformRand;
 use blake3::Hasher;
 
-const PAYLOAD_KDF_DOMAIN: &[u8] = b"TESS::threshold::payload";
+const PAYLOAD_KDF_DOMAIN: &[u8] = b"tess::threshold::payload";
 
 fn derive_keystream<B: PairingBackend>(secret: &B::Target, len: usize) -> Vec<u8> {
     if len == 0 {

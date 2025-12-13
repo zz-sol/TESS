@@ -1,11 +1,13 @@
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+#[cfg(feature = "ark_bls12381")]
+use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
+#[cfg(feature = "ark_bls12381")]
 use std::time::Instant;
 
 #[cfg(feature = "ark_bls12381")]
 fn run_arkworks_example() -> Result<(), Box<dyn std::error::Error>> {
-    use TESS::config::{BackendConfig, BackendId, CurveId, ThresholdParameters};
-    use TESS::protocol::arkworks::SilentThresholdScheme;
-    use TESS::ThresholdScheme;
+    use tess::ThresholdScheme;
+    use tess::config::{BackendConfig, BackendId, CurveId, ThresholdParameters};
+    use tess::protocol::ark_bls12_381::SilentThresholdScheme;
 
     const PARTIES: usize = 1 << 4; // 2048
     const THRESHOLD: usize = 3;
@@ -31,12 +33,7 @@ fn run_arkworks_example() -> Result<(), Box<dyn std::error::Error>> {
 
     let message = vec![0u8; params.chunk_size];
     let enc_start = Instant::now();
-    let ciphertext = scheme.encrypt(
-        &mut rng,
-        &key_material.aggregate_key,
-        &params,
-        &message,
-    )?;
+    let ciphertext = scheme.encrypt(&mut rng, &key_material.aggregate_key, &params, &message)?;
     println!("Encryption time: {:?}", enc_start.elapsed());
 
     let mut selector = vec![false; PARTIES];

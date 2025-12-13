@@ -25,7 +25,7 @@ fn generator_for_size(n: usize) -> Result<Scalar, BackendError> {
     let log_n = n.trailing_zeros();
     let shift = TWO_ADICITY - log_n;
     let exp = 1u64 << shift;
-    Ok(ROOT_OF_UNITY.pow_vartime(&[exp, 0, 0, 0]))
+    Ok(ROOT_OF_UNITY.pow_vartime([exp, 0, 0, 0]))
 }
 
 fn batch_inversion(values: &mut [Scalar]) -> Result<(), BackendError> {
@@ -38,8 +38,8 @@ fn batch_inversion(values: &mut [Scalar]) -> Result<(), BackendError> {
         prefix[i] = acc;
         acc *= value;
     }
-    let inv = Option::<Scalar>::from(acc.invert())
-        .ok_or_else(|| BackendError::Math("batch inversion failed"))?;
+    let inv =
+        Option::<Scalar>::from(acc.invert()).ok_or(BackendError::Math("batch inversion failed"))?;
     let mut suffix = inv;
     for (value, pref) in values.iter_mut().zip(prefix.into_iter()).rev() {
         let tmp = *value;
@@ -57,14 +57,14 @@ pub fn lagrange_poly(n: usize, index: usize) -> Result<DensePolynomial, BackendE
     polys
         .into_iter()
         .nth(index)
-        .ok_or_else(|| BackendError::Math("lagrange polynomial missing"))
+        .ok_or(BackendError::Math("lagrange polynomial missing"))
 }
 
 pub fn lagrange_polys(n: usize) -> Result<Vec<DensePolynomial>, BackendError> {
     ensure_domain_size(n)?;
     let omega = generator_for_size(n)?;
     let omega_inv = Option::<Scalar>::from(omega.invert())
-        .ok_or_else(|| BackendError::Math("invalid generator inversion"))?;
+        .ok_or(BackendError::Math("invalid generator inversion"))?;
     let n_scalar = Scalar::from(n as u64);
 
     let mut omega_inv_pows = Vec::with_capacity(n);
@@ -116,7 +116,7 @@ pub fn interp_mostly_zero(
         scale = scale * points[0] + coeff;
     }
     let scale_inv = Option::<Scalar>::from(scale.invert())
-        .ok_or_else(|| BackendError::Math("interpolation scale inversion failed"))?;
+        .ok_or(BackendError::Math("interpolation scale inversion failed"))?;
 
     for coeff in coeffs.iter_mut() {
         *coeff *= eval * scale_inv;

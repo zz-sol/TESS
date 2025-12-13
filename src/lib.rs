@@ -1,4 +1,4 @@
-//! Core traits, configuration, and API definitions for the TESS threshold encryption project.
+//! Core traits, configuration, and API definitions for the tess threshold encryption project.
 //!
 //! The crate currently focuses on the abstraction layer that allows multiple
 //! cryptographic backends (Arkworks, blstrs, future GPU-enhanced MSM engines)
