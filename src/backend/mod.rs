@@ -140,7 +140,7 @@ mod tests {
     #[cfg(feature = "ark_bn254")]
     use ark_bn254::Fr as BnFr;
     #[cfg(any(feature = "ark_bls12381", feature = "ark_bn254"))]
-    use ark_poly::univariate::DensePolynomial as ArkDensePolynomial;
+    use ark_poly::{DenseUVPolynomial, univariate::DensePolynomial as ArkDensePolynomial};
 
     type CommitmentPolynomial<E> =
         <<E as PairingBackend>::PolynomialCommitment as PolynomialCommitment<E>>::Polynomial;

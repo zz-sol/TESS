@@ -1,6 +1,6 @@
 use ark_bn254::Fr as BnFr;
 use ark_ff::{FftField, batch_inversion};
-use ark_poly::univariate::DensePolynomial;
+use ark_poly::{DenseUVPolynomial, univariate::DensePolynomial};
 
 use crate::errors::BackendError;
 

@@ -1,11 +1,13 @@
 use ark_bls12_381::Fr as BlsFr;
-use ark_poly::{Radix2EvaluationDomain, univariate::DensePolynomial};
+use ark_poly::{
+    DenseUVPolynomial, EvaluationDomain, Radix2EvaluationDomain, univariate::DensePolynomial,
+};
 use ark_serialize::CanonicalDeserialize;
 use ark_std::UniformRand;
 use rand_core::RngCore;
 
 use crate::{
-    backend::{ArkGt, ArkworksBls12, BlsPowers},
+    backend::{ArkworksBls12, BlsPowers},
     config::{BackendId, CurveId},
     errors::{BackendError, Error},
     lagrange::ark_bls12_381::{interp_mostly_zero, lagrange_polys},
@@ -66,6 +68,6 @@ impl ProtocolBackend for ArkworksBls12 {
     }
 
     fn pairing_generator(params: &BlsPowers) -> Self::Target {
-        ArkGt(params.e_gh.clone())
+        params.e_gh.clone()
     }
 }

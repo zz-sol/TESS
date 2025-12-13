@@ -1,11 +1,13 @@
 use ark_bn254::Fr as BnFr;
-use ark_poly::{Radix2EvaluationDomain, univariate::DensePolynomial};
+use ark_poly::{
+    DenseUVPolynomial, EvaluationDomain, Radix2EvaluationDomain, univariate::DensePolynomial,
+};
 use ark_serialize::CanonicalDeserialize;
 use ark_std::UniformRand;
 use rand_core::RngCore;
 
 use crate::{
-    backend::{ArkBnGt, ArkworksBn254, BnPowers},
+    backend::{ArkworksBn254, BnPowers},
     config::{BackendId, CurveId},
     errors::{BackendError, Error},
     lagrange::ark_bn254::{interp_mostly_zero, lagrange_polys},
@@ -66,6 +68,6 @@ impl ProtocolBackend for ArkworksBn254 {
     }
 
     fn pairing_generator(params: &BnPowers) -> Self::Target {
-        ArkBnGt(params.e_gh.clone())
+        params.e_gh.clone()
     }
 }
