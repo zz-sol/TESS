@@ -85,11 +85,12 @@ impl ThresholdScheme<ArkworksBls12> for SilentThresholdScheme {
         } else {
             self.sample_tau(rng)
         };
-        let kzg_params = BlsKzg::setup(parties, &tau).map_err(|err| Error::Backend(err))?;
+        let kzg_params = BlsKzg::setup(parties, &tau).map_err(Error::Backend)?;
 
         let lagranges = lagrange_polys(parties).map_err(Error::Backend)?;
-        let domain = Radix2EvaluationDomain::new(parties)
-            .ok_or_else(|| Error::Backend(BackendError::Math("invalid evaluation domain")))?;
+        let domain = Radix2EvaluationDomain::new(parties).ok_or(Error::Backend(
+            BackendError::Math("invalid evaluation domain"),
+        ))?;
 
         let secret_keys = self.generate_secret_keys(rng, parties);
         let public_keys = secret_keys
@@ -116,8 +117,7 @@ impl ThresholdScheme<ArkworksBls12> for SilentThresholdScheme {
         params_cfg.validate()?;
         ensure_supported_config(params_cfg)?;
         let tau = load_tau_from_params(params_cfg)?;
-        let kzg_params =
-            BlsKzg::setup(params_cfg.parties, &tau).map_err(|err| Error::Backend(err))?;
+        let kzg_params = BlsKzg::setup(params_cfg.parties, &tau).map_err(Error::Backend)?;
         aggregate_public_key(public_keys, &kzg_params, params_cfg.parties)
     }
 
@@ -147,7 +147,7 @@ impl ThresholdScheme<ArkworksBls12> for SilentThresholdScheme {
         let g = ArkG1::from_affine(
             kzg_params
                 .powers_of_g
-                .get(0)
+                .first()
                 .ok_or(BackendError::Math("missing g generator"))?,
         );
         let g_tau_t = ArkG1::from_affine(
@@ -160,7 +160,7 @@ impl ThresholdScheme<ArkworksBls12> for SilentThresholdScheme {
         let h = ArkG2::from_affine(
             kzg_params
                 .powers_of_h
-                .get(0)
+                .first()
                 .ok_or(BackendError::Math("missing h generator"))?,
         );
         let h_tau = ArkG2::from_affine(
@@ -196,9 +196,7 @@ impl ThresholdScheme<ArkworksBls12> for SilentThresholdScheme {
 
         let shared_secret = agg_key.precomputed_pairing.mul_scalar(&s4);
 
-        let mut proof_g1 = Vec::with_capacity(2);
-        proof_g1.push(sa1_0);
-        proof_g1.push(sa1_1);
+        let proof_g1 = vec![sa1_0, sa1_1];
 
         let mut proof_g2 = Vec::with_capacity(6);
         proof_g2.extend([sa2_0, sa2_1, sa2_2, sa2_3, sa2_4, sa2_5]);
@@ -350,7 +348,7 @@ fn aggregate_public_key(
     let g2_tau_n = params
         .powers_of_h
         .get(parties)
-        .ok_or_else(|| Error::Backend(BackendError::Math("missing h^tau^n")))?;
+        .ok_or(Error::Backend(BackendError::Math("missing h^tau^n")))?;
     let z_g2 = ArkG2::from_affine(g2_tau_n).sub(&ArkG2::generator());
 
     Ok(AggregateKey {
@@ -412,8 +410,9 @@ fn aggregate_decrypt(
         return Err(Error::NotEnoughShares { required, provided });
     }
 
-    let domain = Radix2EvaluationDomain::new(n)
-        .ok_or_else(|| Error::Backend(BackendError::Math("invalid evaluation domain")))?;
+    let domain = Radix2EvaluationDomain::new(n).ok_or(Error::Backend(BackendError::Math(
+        "invalid evaluation domain",
+    )))?;
     let domain_elements: Vec<BlsFr> = domain.elements().collect();
 
     let mut points = vec![domain_elements[0]];
@@ -453,7 +452,9 @@ fn aggregate_decrypt(
 
     let n_inv = BlsFr::from(n as u64)
         .inverse()
-        .ok_or_else(|| Error::Backend(BackendError::Math("domain size inversion failed")))?;
+        .ok_or(Error::Backend(BackendError::Math(
+            "domain size inversion failed",
+        )))?;
 
     let scalars: Vec<BlsFr> = parties.iter().map(|&i| b_evals[i]).collect();
 
@@ -508,13 +509,14 @@ fn aggregate_decrypt(
         BlsMsm::msm_g1(&bases, &scalars).map_err(Error::Backend)?
     };
 
-    let mut lhs = Vec::new();
-    lhs.push(apk.negate());
-    lhs.push(qz.negate());
-    lhs.push(qx.negate());
-    lhs.push(qhatx);
-    lhs.push(bhat_g1.negate());
-    lhs.push(q0_g1.negate());
+    let mut lhs = vec![
+        apk.negate(),
+        qz.negate(),
+        qx.negate(),
+        qhatx,
+        bhat_g1.negate(),
+        q0_g1.negate(),
+    ];
     lhs.extend(ciphertext.proof_g1.iter().cloned());
 
     let mut rhs = Vec::new();
@@ -561,7 +563,7 @@ mod tests {
     #[test]
     fn arkworks_encrypt_decrypt_roundtrip() {
         let mut rng = StdRng::from_entropy();
-        let scheme = SilentThresholdScheme::default();
+        let scheme = SilentThresholdScheme;
         let params = sample_params();
         let km = scheme.keygen(&mut rng, &params).expect("keygen");
         let ct = scheme
@@ -570,8 +572,8 @@ mod tests {
 
         let mut selector = vec![false; params.parties];
         let mut partials = Vec::new();
-        for idx in 0..=params.threshold {
-            selector[idx] = true;
+        for (idx, slot) in selector.iter_mut().enumerate().take(params.threshold + 1) {
+            *slot = true;
             let share = scheme
                 .partial_decrypt(&km.secret_keys[idx], &ct)
                 .expect("partial decrypt");
@@ -597,7 +599,7 @@ mod tests {
     #[test]
     fn arkworks_decrypt_not_enough_shares() {
         let mut rng = StdRng::from_entropy();
-        let scheme = SilentThresholdScheme::default();
+        let scheme = SilentThresholdScheme;
         let params = sample_params();
         let km = scheme.keygen(&mut rng, &params).expect("keygen");
         let ct = scheme
@@ -606,8 +608,8 @@ mod tests {
 
         let mut selector = vec![false; params.parties];
         let mut partials = Vec::new();
-        for idx in 0..params.threshold {
-            selector[idx] = true;
+        for (idx, slot) in selector.iter_mut().enumerate().take(params.threshold) {
+            *slot = true;
             let share = scheme
                 .partial_decrypt(&km.secret_keys[idx], &ct)
                 .expect("partial decrypt");
@@ -629,7 +631,7 @@ mod tests {
     #[test]
     fn arkworks_decrypt_selector_mismatch() {
         let mut rng = StdRng::from_entropy();
-        let scheme = SilentThresholdScheme::default();
+        let scheme = SilentThresholdScheme;
         let params = sample_params();
         let km = scheme.keygen(&mut rng, &params).expect("keygen");
         let ct = scheme
@@ -638,8 +640,8 @@ mod tests {
 
         let mut selector = vec![false; params.parties];
         let mut partials = Vec::new();
-        for idx in 0..=params.threshold {
-            selector[idx] = true;
+        for (idx, slot) in selector.iter_mut().enumerate().take(params.threshold + 1) {
+            *slot = true;
             let share = scheme
                 .partial_decrypt(&km.secret_keys[idx], &ct)
                 .expect("partial decrypt");
@@ -653,7 +655,7 @@ mod tests {
     #[test]
     fn arkworks_decrypt_duplicate_partial() {
         let mut rng = StdRng::from_entropy();
-        let scheme = SilentThresholdScheme::default();
+        let scheme = SilentThresholdScheme;
         let params = sample_params();
         let km = scheme.keygen(&mut rng, &params).expect("keygen");
         let ct = scheme
@@ -662,8 +664,8 @@ mod tests {
 
         let mut selector = vec![false; params.parties];
         let mut partials = Vec::new();
-        for idx in 0..=params.threshold {
-            selector[idx] = true;
+        for (idx, slot) in selector.iter_mut().enumerate().take(params.threshold + 1) {
+            *slot = true;
             let share = scheme
                 .partial_decrypt(&km.secret_keys[idx], &ct)
                 .expect("partial decrypt");

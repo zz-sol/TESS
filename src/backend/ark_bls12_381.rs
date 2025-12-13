@@ -409,14 +409,8 @@ impl PairingBackend for ArkworksBls12 {
         if g1.len() != g2.len() {
             return Err(BackendError::Math("pairing length mismatch"));
         }
-        let lhs = g1
-            .iter()
-            .map(|p| p.0.into_affine())
-            .collect::<Vec<_>>();
-        let rhs = g2
-            .iter()
-            .map(|p| p.0.into_affine())
-            .collect::<Vec<_>>();
+        let lhs = g1.iter().map(|p| p.0.into_affine()).collect::<Vec<_>>();
+        let rhs = g2.iter().map(|p| p.0.into_affine()).collect::<Vec<_>>();
         Ok(ArkGt(Bls12_381::multi_pairing(lhs, rhs)))
     }
 }
