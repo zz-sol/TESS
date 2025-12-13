@@ -28,3 +28,8 @@ ark_bn254 = ["arkworks_base", "ark-bn254"]
 
 [dev-dependencies]
 rand = "0.8"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "msm"
+harness = false
