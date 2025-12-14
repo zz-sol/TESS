@@ -6,6 +6,7 @@ use core::{
 
 use blake3::Hasher;
 use rand_core::RngCore;
+use tracing::{instrument, trace};
 
 use crate::{
     backend::{
@@ -116,12 +117,20 @@ pub struct DecryptionResult<B: PairingBackend> {
 }
 
 /// High-level API required by consumers of the scheme.
-pub trait ThresholdScheme<B: PairingBackend>: Debug + Send + Sync + 'static {
-    /// Generates key material for all parties using the selected backend.
+pub trait ThresholdScheme<B: ProtocolBackend>: Debug + Send + Sync + 'static {
+    /// Generates the structured reference string (SRS) or powers of tau required by the backend.
+    fn srs_gen<R: RngCore + ?Sized>(
+        &self,
+        rng: &mut R,
+        params: &ThresholdParameters,
+    ) -> Result<(CommitmentParams<B>, Vec<u8>), Error>;
+
+    /// Generates key material for all parties using the selected backend and precomputed SRS.
     fn keygen<R: RngCore + ?Sized>(
         &self,
         rng: &mut R,
         params: &ThresholdParameters,
+        commitment_params: &CommitmentParams<B>,
     ) -> Result<KeyMaterial<B>, Error>;
 
     /// Recomputes the aggregated key from a slice of public keys (e.g. when members are rotated).
@@ -129,6 +138,7 @@ pub trait ThresholdScheme<B: PairingBackend>: Debug + Send + Sync + 'static {
         &self,
         params: &ThresholdParameters,
         public_keys: &[PublicKey<B>],
+        commitment_params: &CommitmentParams<B>,
     ) -> Result<AggregateKey<B>, Error>;
 
     /// Encrypts a payload with the aggregated key.
@@ -224,11 +234,12 @@ where
     B: ProtocolBackend,
     BackendScalar<B>: ProtocolScalar,
 {
-    fn keygen<R: RngCore + ?Sized>(
+    #[instrument(level = "debug", skip(self, rng, params))]
+    fn srs_gen<R: RngCore + ?Sized>(
         &self,
         rng: &mut R,
         params: &ThresholdParameters,
-    ) -> Result<KeyMaterial<B>, Error> {
+    ) -> Result<(CommitmentParams<B>, Vec<u8>), Error> {
         params.validate()?;
         Self::ensure_backend(params)?;
         let parties = params.parties;
@@ -238,39 +249,58 @@ where
             B::sample_tau(rng)
         };
         let kzg_params = B::PolynomialCommitment::setup(parties, &tau).map_err(Error::Backend)?;
+        let tau_bytes = tau.to_repr().as_ref().to_vec();
+        Ok((kzg_params, tau_bytes))
+    }
+
+    #[instrument(level = "debug", skip(self, rng, params, commitment_params))]
+    fn keygen<R: RngCore + ?Sized>(
+        &self,
+        rng: &mut R,
+        params: &ThresholdParameters,
+        commitment_params: &CommitmentParams<B>,
+    ) -> Result<KeyMaterial<B>, Error> {
+        params.validate()?;
+        Self::ensure_backend(params)?;
+        let parties = params.parties;
         let lagranges = B::lagrange_polynomials(parties).map_err(Error::Backend)?;
-        // Ensure domain availability early to surface errors.
         B::domain_new(parties).map_err(Error::Backend)?;
         let secret_keys = Self::generate_secret_keys(rng, parties);
         let public_keys = secret_keys
             .iter()
             .map(|sk| {
-                derive_public_key::<B>(sk.participant_id, sk, &lagranges, parties, &kzg_params)
+                derive_public_key::<B>(
+                    sk.participant_id,
+                    sk,
+                    &lagranges,
+                    parties,
+                    commitment_params,
+                )
             })
             .collect::<Result<Vec<_>, BackendError>>()
             .map_err(Error::Backend)?;
-        let aggregate_key = aggregate_public_key::<B>(&public_keys, &kzg_params, parties)?;
+        let aggregate_key = aggregate_public_key::<B>(&public_keys, commitment_params, parties)?;
         Ok(KeyMaterial {
             secret_keys,
             public_keys,
             aggregate_key,
-            kzg_params,
+            kzg_params: commitment_params.clone(),
         })
     }
 
+    #[instrument(level = "trace", skip(self, params, public_keys, commitment_params))]
     fn aggregate_public_key(
         &self,
         params: &ThresholdParameters,
         public_keys: &[PublicKey<B>],
+        commitment_params: &CommitmentParams<B>,
     ) -> Result<AggregateKey<B>, Error> {
         params.validate()?;
         Self::ensure_backend(params)?;
-        let tau = load_tau_from_params::<B>(params)?;
-        let kzg_params =
-            B::PolynomialCommitment::setup(params.parties, &tau).map_err(Error::Backend)?;
-        aggregate_public_key::<B>(public_keys, &kzg_params, params.parties)
+        aggregate_public_key::<B>(public_keys, commitment_params, params.parties)
     }
 
+    #[instrument(level = "debug", skip(self, rng, agg_key, params, payload))]
     fn encrypt<R: RngCore + ?Sized>(
         &self,
         rng: &mut R,
@@ -364,6 +394,11 @@ where
         })
     }
 
+    #[instrument(
+        level = "debug",
+        skip(self, ciphertext, partials, selector, agg_key),
+        fields(num_partials = partials.len())
+    )]
     fn aggregate_decrypt(
         &self,
         ciphertext: &Ciphertext<B>,
@@ -407,14 +442,22 @@ fn decrypt_payload<B: PairingBackend>(secret: &B::Target, ciphertext: &[u8]) -> 
     xor_with_keystream(ciphertext, &keystream)
 }
 
-fn load_tau_from_params<B: ProtocolBackend>(
-    params: &ThresholdParameters,
-) -> Result<B::Scalar, Error> {
-    let bytes = params
-        .kzg_tau
-        .as_ref()
-        .ok_or_else(|| Error::InvalidConfig("missing trusted tau in parameters".into()))?;
-    B::parse_tau(bytes)
+fn divide_by_linear<B: ProtocolBackend>(
+    poly: &CommitmentPolynomial<B>,
+    root: B::Scalar,
+) -> (CommitmentPolynomial<B>, B::Scalar)
+where
+    BackendScalar<B>: ProtocolScalar,
+{
+    assert!(poly.coeffs().len() > 1, "cannot divide constant polynomial");
+    let mut quotient = vec![<B::Scalar as FieldElement>::zero(); poly.coeffs().len() - 1];
+    let mut carry = poly.coeffs().last().cloned().unwrap();
+    for (idx, coeff) in poly.coeffs().iter().rev().skip(1).enumerate() {
+        let pos = quotient.len() - 1 - idx;
+        quotient[pos] = carry.clone();
+        carry = coeff.clone() + root.clone() * carry;
+    }
+    (B::polynomial_from_coeffs(quotient), carry)
 }
 
 fn scale_poly<B: ProtocolBackend>(
@@ -473,24 +516,6 @@ where
         }
     }
     B::polynomial_from_coeffs(coeffs)
-}
-
-fn divide_by_linear<B: ProtocolBackend>(
-    poly: &CommitmentPolynomial<B>,
-    root: B::Scalar,
-) -> (CommitmentPolynomial<B>, B::Scalar)
-where
-    BackendScalar<B>: ProtocolScalar,
-{
-    assert!(poly.coeffs().len() > 1, "cannot divide constant polynomial");
-    let mut quotient = vec![<B::Scalar as FieldElement>::zero(); poly.coeffs().len() - 1];
-    let mut carry = poly.coeffs().last().cloned().unwrap();
-    for (idx, coeff) in poly.coeffs().iter().rev().skip(1).enumerate() {
-        let pos = quotient.len() - 1 - idx;
-        quotient[pos] = carry.clone();
-        carry = coeff.clone() + root.clone() * carry;
-    }
-    (B::polynomial_from_coeffs(quotient), carry)
 }
 
 fn divide_by_vanishing<B: ProtocolBackend>(
@@ -704,9 +729,19 @@ where
             }
             parties.push(i);
         } else {
-            points.push(omega.clone());
+            if i != 0 {
+                points.push(omega.clone());
+            }
         }
     }
+    let nonselected_count = selector.iter().filter(|&&selected| !selected).count();
+    trace!(
+        interpolation_points = points.len(),
+        selected_count = parties.len(),
+        nonselected_count,
+        zero_selected = selector[0],
+        "interpolation setup"
+    );
 
     let b = B::interp_mostly_zero(<B::Scalar as FieldElement>::one(), &points)
         .map_err(Error::Backend)?;
@@ -742,6 +777,11 @@ where
         )))?;
 
     let scalars: Vec<B::Scalar> = parties.iter().map(|&i| b_evals[i].clone()).collect();
+    trace!(
+        selected_indices = ?parties,
+        scalars = ?scalars,
+        "selection scalars",
+    );
 
     let apk = if scalars.is_empty() {
         B::G1::identity()
@@ -853,8 +893,12 @@ mod tests {
     {
         let mut rng = StdRng::from_entropy();
         let scheme = SilentThreshold::<B>::default();
-        let params = sample_params(backend);
-        let km = scheme.keygen(&mut rng, &params).expect("keygen");
+        let mut params = sample_params(backend);
+        let (kzg_params, tau_bytes) = scheme.srs_gen(&mut rng, &params).expect("srs gen");
+        params.kzg_tau = Some(tau_bytes);
+        let km = scheme
+            .keygen(&mut rng, &params, &kzg_params)
+            .expect("keygen");
         let ct = scheme
             .encrypt(&mut rng, &km.aggregate_key, &params, b"payload")
             .expect("encrypt");
@@ -892,8 +936,12 @@ mod tests {
     {
         let mut rng = StdRng::from_entropy();
         let scheme = SilentThreshold::<B>::default();
-        let params = sample_params(backend);
-        let km = scheme.keygen(&mut rng, &params).expect("keygen");
+        let mut params = sample_params(backend);
+        let (kzg_params, tau_bytes) = scheme.srs_gen(&mut rng, &params).expect("srs gen");
+        params.kzg_tau = Some(tau_bytes);
+        let km = scheme
+            .keygen(&mut rng, &params, &kzg_params)
+            .expect("keygen");
         let ct = scheme
             .encrypt(&mut rng, &km.aggregate_key, &params, b"payload")
             .expect("encrypt");
@@ -927,8 +975,12 @@ mod tests {
     {
         let mut rng = StdRng::from_entropy();
         let scheme = SilentThreshold::<B>::default();
-        let params = sample_params(backend);
-        let km = scheme.keygen(&mut rng, &params).expect("keygen");
+        let mut params = sample_params(backend);
+        let (kzg_params, tau_bytes) = scheme.srs_gen(&mut rng, &params).expect("srs gen");
+        params.kzg_tau = Some(tau_bytes);
+        let km = scheme
+            .keygen(&mut rng, &params, &kzg_params)
+            .expect("keygen");
         let ct = scheme
             .encrypt(&mut rng, &km.aggregate_key, &params, b"payload")
             .expect("encrypt");
@@ -955,8 +1007,12 @@ mod tests {
     {
         let mut rng = StdRng::from_entropy();
         let scheme = SilentThreshold::<B>::default();
-        let params = sample_params(backend);
-        let km = scheme.keygen(&mut rng, &params).expect("keygen");
+        let mut params = sample_params(backend);
+        let (kzg_params, tau_bytes) = scheme.srs_gen(&mut rng, &params).expect("srs gen");
+        params.kzg_tau = Some(tau_bytes);
+        let km = scheme
+            .keygen(&mut rng, &params, &kzg_params)
+            .expect("keygen");
         let ct = scheme
             .encrypt(&mut rng, &km.aggregate_key, &params, b"payload")
             .expect("encrypt");

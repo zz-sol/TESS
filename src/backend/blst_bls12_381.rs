@@ -5,6 +5,7 @@ use ff::{Field, PrimeField};
 use group::{Curve, Group, prime::PrimeCurveAffine};
 use pairing::{MillerLoopResult as PairingMillerLoopResult, MultiMillerLoop};
 use rand_core::RngCore;
+use rayon::prelude::*;
 use std::io::Cursor;
 
 use crate::backend::{
@@ -371,17 +372,13 @@ fn setup_powers(max_degree: usize, tau: &Scalar) -> Result<BlstPowers, BackendEr
         cur *= tau;
     }
 
-    let mut powers_of_g_proj = Vec::with_capacity(max_degree + 1);
-    for power in powers_of_tau.iter() {
-        powers_of_g_proj.push(g * power);
-    }
+    let powers_of_g_proj: Vec<G1Projective> =
+        powers_of_tau.par_iter().map(|power| g * power).collect();
     let mut powers_of_g = vec![G1Affine::identity(); max_degree + 1];
     G1Projective::batch_normalize(&powers_of_g_proj, &mut powers_of_g);
 
-    let mut powers_of_h_proj = Vec::with_capacity(max_degree + 1);
-    for power in powers_of_tau.iter() {
-        powers_of_h_proj.push(h * power);
-    }
+    let powers_of_h_proj: Vec<G2Projective> =
+        powers_of_tau.par_iter().map(|power| h * power).collect();
     let mut powers_of_h = vec![G2Affine::identity(); max_degree + 1];
     G2Projective::batch_normalize(&powers_of_h_proj, &mut powers_of_h);
 

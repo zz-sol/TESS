@@ -14,6 +14,7 @@ use ark_poly::{
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use rand_core::RngCore;
+use rayon::prelude::*;
 use std::fmt::Debug;
 
 use super::sample_field;
@@ -270,7 +271,7 @@ fn setup_powers_bn(max_degree: usize, tau: &BnFr) -> Result<BnPowers, BackendErr
     }
 
     let g_proj: Vec<BnG1> = powers_of_tau
-        .iter()
+        .par_iter()
         .map(|power| g.mul_bigint((*power).into_bigint()))
         .collect();
     let powers_of_g = BnG1::normalize_batch(&g_proj)
@@ -279,7 +280,7 @@ fn setup_powers_bn(max_degree: usize, tau: &BnFr) -> Result<BnPowers, BackendErr
         .collect();
 
     let h_proj: Vec<BnG2> = powers_of_tau
-        .iter()
+        .par_iter()
         .map(|power| h.mul_bigint((*power).into_bigint()))
         .collect();
     let powers_of_h = BnG2::normalize_batch(&h_proj)

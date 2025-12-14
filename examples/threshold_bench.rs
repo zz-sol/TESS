@@ -1,8 +1,10 @@
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::time::Instant;
+use tess::{TargetGroup, ThresholdScheme};
+use tracing::{info, instrument, trace_span};
+use tracing_subscriber::fmt::init as init_tracing;
 
 use tess::{
-    ThresholdScheme,
     config::{BackendConfig, BackendId, CurveId, ThresholdParameters},
     protocol::{ProtocolBackend, ProtocolScalar, SilentThreshold},
 };
@@ -14,9 +16,10 @@ use tess::ArkworksBn254;
 #[cfg(feature = "blst")]
 use tess::BlstBackend;
 
-const PARTIES: usize = 1 << 11; // 16
+const PARTIES: usize = 1 << 6; // 16
 const THRESHOLD: usize = 3;
 
+#[instrument(level = "info", skip(backend_config), fields(backend = %backend_name))]
 fn run_threshold_example<B>(
     backend_name: &str,
     backend_config: BackendConfig,
@@ -27,7 +30,7 @@ where
 {
     let mut rng = StdRng::seed_from_u64(42);
     let scheme = SilentThreshold::<B>::default();
-    let params = ThresholdParameters {
+    let mut params = ThresholdParameters {
         parties: PARTIES,
         threshold: THRESHOLD,
         chunk_size: 32,
@@ -35,41 +38,55 @@ where
         kzg_tau: None,
     };
 
-    println!("\n== {} ==", backend_name);
-    let keygen_start = Instant::now();
-    let key_material = scheme.keygen(&mut rng, &params)?;
-    println!(
-        "Key generation for {} parties (threshold {}): {:?}",
-        PARTIES,
-        THRESHOLD,
-        keygen_start.elapsed()
-    );
+    let (kzg_params, tau_bytes) = scheme.srs_gen(&mut rng, &params)?;
+    params.kzg_tau = Some(tau_bytes);
+
+    info!("starting benchmark");
+    let key_material = {
+        let _span = tracing::info_span!("keygen").entered();
+        let start = Instant::now();
+        let km = scheme.keygen(&mut rng, &params, &kzg_params)?;
+        info!(duration = ?start.elapsed(), "key generation finished");
+        km
+    };
 
     let message = vec![0u8; params.chunk_size];
-    let enc_start = Instant::now();
-    let ciphertext = scheme.encrypt(&mut rng, &key_material.aggregate_key, &params, &message)?;
-    println!("Encryption time: {:?}", enc_start.elapsed());
+    let ciphertext = {
+        let _span = tracing::info_span!("encrypt").entered();
+        let start = Instant::now();
+        let ct = scheme.encrypt(&mut rng, &key_material.aggregate_key, &params, &message)?;
+        info!(duration = ?start.elapsed(), "encryption finished");
+        ct
+    };
 
     let mut selector = vec![false; PARTIES];
-    let mut signer_ids: Vec<usize> = (0..PARTIES).collect();
-    signer_ids.shuffle(&mut rng);
-    let chosen = &signer_ids[..=THRESHOLD];
+    let chosen = vec![0, 3, 27, 35];
 
     let mut partials = Vec::with_capacity(chosen.len());
-    for &idx in chosen {
+    for idx in chosen {
         selector[idx] = true;
+        let _guard = trace_span!("partial_decrypt", idx).entered();
         let partial = scheme.partial_decrypt(&key_material.secret_keys[idx], &ciphertext)?;
         partials.push(partial);
     }
 
-    let dec_start = Instant::now();
-    let result = scheme.aggregate_decrypt(
-        &ciphertext,
-        &partials,
-        &selector,
-        &key_material.aggregate_key,
-    )?;
-    println!("Aggregate decryption time: {:?}", dec_start.elapsed());
+    let result = {
+        let _span = tracing::info_span!("aggregate_decrypt").entered();
+        let start = Instant::now();
+        let res = scheme.aggregate_decrypt(
+            &ciphertext,
+            &partials,
+            &selector,
+            &key_material.aggregate_key,
+        )?;
+        info!(duration = ?start.elapsed(), "aggregate decryption finished");
+        res
+    };
+
+    println!(
+        "shared secrets equal: {}",
+        ciphertext.shared_secret.to_repr().as_ref() == result.shared_secret.to_repr().as_ref()
+    );
     println!(
         "Recovered plaintext matches: {} (len = {})",
         result.plaintext.as_deref() == Some(message.as_slice()),
@@ -84,6 +101,7 @@ where
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_tracing();
     let mut executed = 0;
 
     #[cfg(feature = "blst")]
