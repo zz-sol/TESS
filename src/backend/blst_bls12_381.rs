@@ -93,10 +93,10 @@ impl FieldElement for Scalar {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct BlstG1(pub G1Projective);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct BlstG2(pub G2Projective);
 
 #[derive(Clone, Debug)]

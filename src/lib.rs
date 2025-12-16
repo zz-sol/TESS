@@ -57,7 +57,7 @@
 //! let scheme = SilentThreshold::<BlstBackend>::default();
 //!
 //! // Generate Structured Reference String (one-time trusted setup)
-//! let (srs, tau) = scheme.srs_gen(&mut rng, &params)?;
+//! let srs = scheme.srs_gen(&mut rng, &params)?;
 //!
 //! // Generate key material for all participants
 //! let key_material = scheme.keygen(&mut rng, &params, &srs)?;

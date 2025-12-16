@@ -60,16 +60,16 @@ impl FieldElement for BlsFr {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct ArkG1(pub RawG1);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct ArkG2(pub RawG2);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct ArkG1Affine(pub RawG1Affine);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct ArkG2Affine(pub RawG2Affine);
 
 #[derive(Clone, Debug)]

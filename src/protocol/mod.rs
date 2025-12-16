@@ -48,7 +48,7 @@
 //! let scheme = SilentThreshold::<BlstBackend>::default();
 //!
 //! // Generate SRS
-//! let (srs, tau) = scheme.srs_gen(&mut rng, &params)?;
+//! let srs = scheme.srs_gen(&mut rng, &params)?;
 //!
 //! // Generate keys
 //! let key_material = scheme.keygen(&mut rng, &params, &srs)?;
@@ -275,10 +275,10 @@ impl<B: PairingBackend> Clone for PartialDecryption<B> {
 /// - `li_lj_z`: Commitments to L_i(x) * L_j(z) for all pairs (i, j)
 #[derive(Clone, Debug)]
 pub struct LagrangePowers<B: PairingBackend> {
-    pub li: Vec<B::G1>,
-    pub li_minus0: Vec<B::G1>,
-    pub li_x: Vec<B::G1>,
-    pub li_lj_z: Vec<Vec<B::G1>>,
+    pub li: Vec<<B::G1 as CurvePoint<B::Scalar>>::Affine>,
+    pub li_minus0: Vec<<B::G1 as CurvePoint<B::Scalar>>::Affine>,
+    pub li_x: Vec<<B::G1 as CurvePoint<B::Scalar>>::Affine>,
+    pub li_lj_z: Vec<Vec<<B::G1 as CurvePoint<B::Scalar>>::Affine>>,
 }
 
 /// Structured Reference String for the threshold encryption scheme.
@@ -1008,6 +1008,14 @@ where
         })
         .collect::<Result<Vec<_>, BackendError>>()?;
 
+    let li = B::G1::batch_normalize(&li);
+    let li_minus0 = B::G1::batch_normalize(&li_minus0);
+    let li_x = B::G1::batch_normalize(&li_x);
+    let li_lj_z = li_lj_z
+        .par_iter()
+        .map(|t| B::G1::batch_normalize(t))
+        .collect();
+
     Ok(LagrangePowers {
         li,
         li_minus0,
@@ -1092,30 +1100,39 @@ fn derive_public_key_from_powers<B: ProtocolBackend>(
 where
     BackendScalar<B>: ProtocolScalar,
 {
-    let lagrange_li = powers
-        .li
-        .get(participant_id)
-        .ok_or(BackendError::Math("missing lagrange power"))?
-        .mul_scalar(&sk.scalar);
+    let lagrange_li = {
+        let t = powers
+            .li
+            .get(participant_id)
+            .ok_or(BackendError::Math("missing lagrange power"))?;
+        B::G1::from_affine(t).mul_scalar(&sk.scalar)
+    };
 
-    let lagrange_li_minus0 = powers
-        .li_minus0
-        .get(participant_id)
-        .ok_or(BackendError::Math("missing lagrange power minus0"))?
-        .mul_scalar(&sk.scalar);
+    let lagrange_li_minus0 = {
+        let t = powers
+            .li_minus0
+            .get(participant_id)
+            .ok_or(BackendError::Math("missing lagrange power minus0"))?;
+        B::G1::from_affine(t).mul_scalar(&sk.scalar)
+    };
 
-    let lagrange_li_x = powers
-        .li_x
-        .get(participant_id)
-        .ok_or(BackendError::Math("missing lagrange power x"))?
-        .mul_scalar(&sk.scalar);
+    let lagrange_li_x = {
+        let t = powers
+            .li_x
+            .get(participant_id)
+            .ok_or(BackendError::Math("missing lagrange power x"))?;
+        B::G1::from_affine(t).mul_scalar(&sk.scalar)
+    };
 
     let lagrange_li_lj_z = powers
         .li_lj_z
         .get(participant_id)
         .ok_or(BackendError::Math("missing lagrange powers li_lj_z"))?
         .iter()
-        .map(|val| val.mul_scalar(&sk.scalar))
+        .map(|val| {
+            let t = B::G1::from_affine(val);
+            t.mul_scalar(&sk.scalar)
+        })
         .collect();
 
     Ok(PublicKey {
@@ -1164,9 +1181,7 @@ where
     let g2_tau_n = h_powers
         .get(parties)
         .ok_or(Error::Backend(BackendError::Math("missing h^tau^n")))?;
-    let z_g2 = g2_tau_n - B::G2::generator().to_affine();
-
-    // B::G2::from_affine(g2_tau_n).sub(&B::G2::generator());
+    let z_g2 = B::G2::from_affine(g2_tau_n).sub(&B::G2::generator());
 
     Ok(AggregateKey {
         public_keys: public_keys.to_vec(),

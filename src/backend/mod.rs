@@ -92,7 +92,7 @@ use crate::errors::BackendError;
 /// let recovered = Scalar::from_repr(&bytes).expect("valid repr");
 /// # }
 /// ```
-pub trait FieldElement: Clone + Send + Sync + Debug + 'static {
+pub trait FieldElement: Clone + Send + Sync + Debug + 'static + Copy {
     /// Byte representation type (e.g., 32-byte array for bls12-381 scalars).
     type Repr: AsRef<[u8]> + AsMut<[u8]> + Default + Debug + Send + Sync + Clone + 'static;
 
@@ -151,9 +151,9 @@ pub trait FieldElement: Clone + Send + Sync + Debug + 'static {
 /// let neg = point.negate();
 /// # }
 /// ```
-pub trait CurvePoint<F: FieldElement>: Clone + Send + Sync + Debug + 'static {
+pub trait CurvePoint<F: FieldElement>: Clone + Send + Sync + Debug + 'static + Copy {
     /// Associated affine representation.
-    type Affine: Clone + Debug + Send + Sync + 'static;
+    type Affine: Clone + Debug + Send + Sync + 'static + Copy;
 
     /// Returns the point at infinity (identity element).
     fn identity() -> Self;
@@ -216,7 +216,7 @@ pub trait CurvePoint<F: FieldElement>: Clone + Send + Sync + Debug + 'static {
 /// ```
 pub trait TargetGroup: Clone + Send + Sync + Debug + 'static {
     /// Scalar field type for scalar multiplication.
-    type Scalar: FieldElement;
+    type Scalar: FieldElement + Copy;
     /// Byte representation for serialization.
     type Repr: AsRef<[u8]> + AsMut<[u8]> + Default + Debug + Send + Sync + Clone + 'static;
 
