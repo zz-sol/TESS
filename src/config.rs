@@ -10,7 +10,7 @@
 //!
 //! // Configure 5-of-8 threshold with blstrs backend and BLS12-381 curve
 //! let config = BackendConfig::new(BackendId::Blst, CurveId::Bls12_381);
-//! let params = ThresholdParameters::new(8, 5, config, None).expect("valid params");
+//! let params = ThresholdParameters::new(8, 5, config).expect("valid params");
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -186,7 +186,6 @@ impl BackendConfig {
 ///     4,    // 4 participants (power of two)
 ///     3,    // need 3 to decrypt
 ///     BackendConfig::new(BackendId::Blst, CurveId::Bls12_381),
-///     None, // generate fresh tau
 /// ).expect("valid parameters");
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -224,7 +223,6 @@ impl ThresholdParameters {
     /// let params = ThresholdParameters::new(
     ///     8, 5,
     ///     BackendConfig::new(BackendId::Blst, CurveId::Bls12_381),
-    ///     None,
     /// )?;
     /// # Ok::<(), tess::Error>(())
     /// ```
@@ -259,9 +257,7 @@ impl ThresholdParameters {
     /// let mut params = ThresholdParameters {
     ///     parties: 3, // Invalid: not power of two!
     ///     threshold: 2,
-    ///     chunk_size: 3,
     ///     backend: BackendConfig::new(BackendId::Blst, CurveId::Bls12_381),
-    ///     kzg_tau: None,
     /// };
     ///
     /// assert!(params.validate().is_err());

@@ -49,7 +49,6 @@
 //! let params = ThresholdParameters::new(
 //!     5, 3,
 //!     BackendConfig { backend: BackendId::Blst, curve: CurveId::Bls12_381 },
-//!     None,
 //! )?;
 //!
 //! // Create RNG and scheme instance
