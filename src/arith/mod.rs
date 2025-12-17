@@ -9,3 +9,6 @@ pub use pairing::*;
 
 mod poly;
 pub use poly::*;
+
+mod lagrange;
+pub use lagrange::*;

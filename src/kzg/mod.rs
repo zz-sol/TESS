@@ -1,5 +1,5 @@
 mod scheme;
-pub use scheme::KZG;
+pub use scheme::{KZG, SRS};
 
 use std::fmt::Debug;
 

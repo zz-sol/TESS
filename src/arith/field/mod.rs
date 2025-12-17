@@ -78,4 +78,18 @@ pub trait FieldElement: Clone + Send + Sync + Debug + 'static + Copy {
     ///
     /// Returns an error if the representation is invalid (e.g., not reduced modulo the field order).
     fn from_repr(repr: &Self::Repr) -> Result<Self, BackendError>;
+
+    /// Returns a 2-adic root of unity (i.e., an element of order 2^k for some k).
+    fn two_adic_root_of_unity() -> Self;
+
+    /// Returns a primitive n-th root of unity.
+    ///
+    /// Assumes n is a power of 2.
+    fn two_adicity_generator(n: usize) -> Self;
+
+    /// Performs batch inversion of a slice of field elements.
+    fn batch_inversion(elements: &mut [Self]) -> Result<(), crate::BackendError>;
+
+    /// Convert u64 to self.
+    fn from_u64(n: u64) -> Self;
 }

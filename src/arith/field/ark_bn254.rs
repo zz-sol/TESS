@@ -41,4 +41,60 @@ impl FieldElement for Fr {
         Self::deserialize_compressed(repr.as_slice())
             .map_err(|_| BackendError::Serialization("invalid scalar bytes"))
     }
+
+    fn two_adic_root_of_unity() -> Self {
+        use ark_ff::{Field, fields::models::FpConfig};
+        // For BN254, get the 2-adic root of unity
+        Fr::get_root_of_unity(1 << Fr::MODULUS_BIT_SIZE).unwrap_or_else(Fr::one)
+    }
+
+    fn two_adicity_generator(n: usize) -> Self {
+        use ark_ff::Field;
+        if n == 1 {
+            return Fr::one();
+        }
+
+        // Get the 2-adic root of unity and raise to appropriate power
+        let root = Self::two_adic_root_of_unity();
+        let k = (n - 1).next_power_of_two().trailing_zeros() as usize + 1;
+        let exp_power = (1u64 << k) / n as u64;
+
+        // Convert to [u64; 4] format for pow
+        let mut exp = [0u64; 4];
+        exp[0] = exp_power;
+        root.pow(&exp)
+    }
+
+    fn batch_inversion(elements: &mut [Self]) -> Result<(), BackendError> {
+        use ark_ff::Field;
+
+        if elements.is_empty() {
+            return Ok(());
+        }
+
+        let mut prod = Fr::one();
+        let mut products = Vec::with_capacity(elements.len());
+
+        for elem in elements.iter() {
+            if elem.is_zero() {
+                return Err(BackendError::Math("cannot invert zero element"));
+            }
+            products.push(prod);
+            prod *= elem;
+        }
+
+        let mut inv_prod = prod
+            .inverse()
+            .ok_or(BackendError::Math("batch inversion failed"))?;
+        for (i, elem) in elements.iter_mut().enumerate().rev() {
+            *elem = inv_prod * products[i];
+            inv_prod *= *elem;
+        }
+
+        Ok(())
+    }
+
+    fn from_u64(n: u64) -> Self {
+        Fr::from(n)
+    }
 }
