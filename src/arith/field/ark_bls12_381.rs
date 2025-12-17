@@ -1,6 +1,5 @@
 use ark_bls12_381::Fr as ArkFr;
-use ark_ff::{Field, One, Zero};
-use ark_poly::EvaluationDomain as ArkEvaluationDomain;
+use ark_ff::{Field, One, UniformRand, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use rand_core::RngCore;
 
@@ -19,7 +18,9 @@ impl FieldElement for Fr {
         One::one()
     }
 
-    fn random<R: RngCore + ?Sized>(rng: &mut R) -> Self {}
+    fn random<R: RngCore + ?Sized>(rng: &mut R) -> Self {
+        Fr::rand(rng)
+    }
 
     fn invert(&self) -> Option<Self> {
         self.inverse()
