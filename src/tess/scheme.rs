@@ -9,6 +9,7 @@ use crate::{
     AggregateKey,
     Ciphertext,
     DecryptionResult,
+    DensePolynomial,
     Fr,
     KeyMaterial,
     LagrangePowers,
@@ -18,13 +19,13 @@ use crate::{
     PublicKey,
     SRS,
     SecretKey,
+    TargetGroup,
     ThresholdEncryption,
     arith::{CurvePoint, FieldElement},
     build_lagrange_polys,
     errors::{BackendError, Error},
     sym_enc::{Blake3XorEncryption, SymmetricEncryption},
-    tess::keys::derive_public_key_from_powers,
-    // tess::keys::derive_public_key_from_srs,
+    tess::keys::derive_public_key_from_powers, // tess::keys::derive_public_key_from_srs,
 };
 
 /// The Silent Threshold scheme implementation.
@@ -170,14 +171,34 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
         let s4 = Fr::random(rng);
 
         // Create proof elements
-        let sa1_0 = agg_key.ask.mul_scalar(&s0).add(&g.mul_scalar(&s4));
+
+        // sa1[0] = s0*ask + s3*g^{tau^{t+1}} + s4*g
+        // sa1[0] = (apk.ask * s[0]) + (params.powers_of_g[t + 1] * s[3]) + (params.powers_of_g[0] * s[4]);
+        let sa1_0 = agg_key
+            .ask
+            .mul_scalar(&s0)
+            .add(&params.srs.powers_of_g[threshold + 1].mul_scalar(&s3))
+            .add(&g.mul_scalar(&s4));
+
+        // sa1[1] = s2*g
         let sa1_1 = g.mul_scalar(&s2);
 
+        // sa2[0] = s0*h + s2*gamma_g2
         let sa2_0 = h.mul_scalar(&s0).add(&gamma_g2.mul_scalar(&s2));
+
+        // sa2[1] = s0*z_g2
         let sa2_1 = agg_key.z_g2.mul_scalar(&s0);
-        let sa2_2 = h.mul_scalar(&(s0 + s1));
+
+        // sa2[2] = s0*h^tau + s1*h^tau
+        let sa2_2 = params.srs.powers_of_h[1].mul_scalar(&(s0 + s1));
+
+        // sa2[3] = s1*h
         let sa2_3 = h.mul_scalar(&s1);
+
+        // sa2[4] = s3*h
         let sa2_4 = h.mul_scalar(&s3);
+
+        // sa2[5] = s4*h^{tau - omega^0}
         let sa2_5 = params.srs.powers_of_h[1]
             .sub(&params.srs.powers_of_h[0])
             .mul_scalar(&s4);
@@ -186,12 +207,13 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
         let proof_g2 = vec![sa2_0, sa2_1, sa2_2, sa2_3, sa2_4, sa2_5];
 
         // Compute shared secret from s4 and pairing
-        let shared_secret = B::pairing(&agg_key.ask, &gamma_g2);
+        // enc_key = e_gh^s4
+        let shared_secret = agg_key.precomputed_pairing.mul_scalar(&s4);
 
         // Use a hash of s4 for payload encryption
         let mut hasher = Hasher::new();
         hasher.update(b"shared_secret");
-        let s4_bytes = format!("{:?}", s4).into_bytes();
+        let s4_bytes = format!("{:?}", s4).into_bytes(); // todo: serialization
         hasher.update(&s4_bytes);
         let secret_bytes = hasher.finalize().as_bytes().to_vec();
 
@@ -251,7 +273,59 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
             });
         }
 
-        let recovered = B::pairing(&agg_key.ask, &ciphertext.gamma_g2);
+        let parties = agg_key.public_keys.len();
+
+        let mut partial_map: Vec<Option<&PartialDecryption<B>>> = vec![None; parties];
+        for partial in partials {
+            if partial.participant_id < parties {
+                partial_map[partial.participant_id] = Some(partial);
+            }
+        }
+
+        let domain_elements = build_domain_elements(parties)?;
+        let mut points = Vec::with_capacity(parties);
+        points.push(domain_elements[0]);
+
+        let mut selected_indices = Vec::new();
+        for (idx, &is_selected) in selector.iter().enumerate().take(parties) {
+            if is_selected && partial_map[idx].is_some() {
+                selected_indices.push(idx);
+            } else if !is_selected {
+                points.push(domain_elements[idx]);
+            }
+        }
+
+        if selected_indices.len() < ciphertext.threshold {
+            return Err(Error::NotEnoughShares {
+                required: ciphertext.threshold,
+                provided: selected_indices.len(),
+            });
+        }
+
+        let b_polynomial = interp_mostly_zero(Fr::one(), &points)?;
+        let b_evals: Vec<Fr> = domain_elements
+            .iter()
+            .map(|point| b_polynomial.evaluate(point))
+            .collect();
+
+        let scalars: Vec<Fr> = selected_indices.iter().map(|&idx| b_evals[idx]).collect();
+
+        let mut aggregated_response = B::G2::identity();
+        for (&idx, scalar) in selected_indices.iter().zip(scalars.iter()) {
+            if let Some(partial) = partial_map[idx] {
+                aggregated_response = aggregated_response.add(&partial.response.mul_scalar(scalar));
+            }
+        }
+
+        let party_inv = Fr::from_u64(parties as u64).invert().ok_or_else(|| {
+            Error::Backend(BackendError::Math("failed to invert party count".into()))
+        })?;
+        let aggregated_response = aggregated_response.mul_scalar(&party_inv);
+
+        // let matches_gamma = aggregated_response == ciphertext.gamma_g2;
+        // dbg!(matches_gamma);
+
+        let recovered = B::pairing(&agg_key.ask, &aggregated_response);
         assert_eq!(recovered, ciphertext.shared_secret);
 
         // Use a hash of the pairing result for decryption (placeholder)
@@ -268,4 +342,58 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
             plaintext: Some(plaintext),
         })
     }
+}
+
+fn build_domain_elements(parties: usize) -> Result<Vec<Fr>, Error> {
+    if parties == 0 {
+        return Err(Error::InvalidConfig("require at least one party".into()));
+    }
+
+    let omega = Fr::two_adicity_generator(parties);
+    let mut elements = Vec::with_capacity(parties);
+    let mut current = Fr::one();
+    for _ in 0..parties {
+        elements.push(current);
+        current = current * omega;
+    }
+
+    Ok(elements)
+}
+
+fn interp_mostly_zero(eval: Fr, points: &[Fr]) -> Result<DensePolynomial, Error> {
+    if points.is_empty() {
+        return Ok(DensePolynomial::from_coefficients_vec(vec![Fr::one()]));
+    }
+
+    let mut coeffs = vec![Fr::one()];
+    for point in points.iter().skip(1) {
+        let neg_point = -*point;
+        coeffs.push(Fr::zero());
+        for i in (0..coeffs.len() - 1).rev() {
+            let (left, right) = coeffs.split_at_mut(i + 1);
+            let coef = &mut left[i];
+            let next = &mut right[0];
+            *next += *coef;
+            *coef *= neg_point;
+        }
+    }
+
+    let mut scale = *coeffs.last().unwrap();
+    let anchor = points[0];
+    for coef in coeffs.iter().rev().skip(1) {
+        scale = scale * anchor + *coef;
+    }
+
+    let scale_inv = scale.invert().ok_or_else(|| {
+        Error::Backend(BackendError::Math(
+            "failed to invert interpolation anchor".into(),
+        ))
+    })?;
+    let multiplier = eval * scale_inv;
+
+    for coeff in coeffs.iter_mut() {
+        *coeff = *coeff * multiplier;
+    }
+
+    Ok(DensePolynomial::from_coefficients_vec(coeffs))
 }
