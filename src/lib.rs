@@ -137,9 +137,11 @@
 mod arith;
 mod errors;
 mod kzg;
+mod sym_enc;
 mod tess;
 
 pub use arith::*;
 pub use errors::*;
 pub use kzg::*;
+pub use sym_enc::*;
 pub use tess::*;

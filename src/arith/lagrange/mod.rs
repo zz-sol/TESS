@@ -4,7 +4,7 @@ use rayon::iter::{
 use tracing::instrument;
 
 use crate::arith::group::CurvePoint;
-use crate::{BackendError, DensePolynomial, FieldElement, Fr, PairingBackend, Polynomial, SRS};
+use crate::{BackendError, DensePolynomial, FieldElement, Fr, PairingBackend, Polynomial};
 
 /// Precomputed Lagrange polynomial commitments for efficient key derivation.
 ///
@@ -27,7 +27,7 @@ pub struct LagrangePowers<B: PairingBackend> {
 }
 
 impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
-    #[instrument(level = "debug", skip_all, fields(domain_size))]
+    #[instrument(level = "info", skip_all, fields(size=domain_size))]
     pub(crate) fn precompute_lagrange_powers(
         lagranges: &[DensePolynomial],
         domain_size: usize,
@@ -118,49 +118,150 @@ impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
     }
 }
 
-pub(super) fn lagrange_poly_impl<F, P, PF>(
-    n: usize,
-    index: usize,
-    poly_from_coeffs: PF,
-) -> Result<P, BackendError>
-where
-    F: FieldElement + std::ops::MulAssign + std::ops::AddAssign + std::ops::Add<Output = F>,
-    PF: Fn(Vec<F>) -> P + Copy,
-{
-    if index >= n {
-        return Err(BackendError::Math("lagrange index out of range"));
-    }
-    let polys = lagrange_polys_impl::<F, P, PF>(n, poly_from_coeffs)?;
-    polys
-        .into_iter()
-        .nth(index)
-        .ok_or(BackendError::Math("lagrange polynomial missing"))
-}
+// pub(super) fn lagrange_poly_impl<F, P, PF>(
+//     n: usize,
+//     index: usize,
+//     poly_from_coeffs: PF,
+// ) -> Result<P, BackendError>
+// where
+//     F: FieldElement + std::ops::MulAssign + std::ops::AddAssign + std::ops::Add<Output = F>,
+//     PF: Fn(Vec<F>) -> P + Copy,
+// {
+//     if index >= n {
+//         return Err(BackendError::Math("lagrange index out of range"));
+//     }
+//     let polys = lagrange_polys_impl::<F, P, PF>(n, poly_from_coeffs)?;
+//     polys
+//         .into_iter()
+//         .nth(index)
+//         .ok_or(BackendError::Math("lagrange polynomial missing"))
+// }
 
-pub(super) fn lagrange_polys_impl<F, P, PF>(
-    n: usize,
-    poly_from_coeffs: PF,
-) -> Result<Vec<P>, BackendError>
-where
-    F: FieldElement + std::ops::MulAssign + std::ops::AddAssign + std::ops::Add<Output = F>,
-    PF: Fn(Vec<F>) -> P + Copy,
-{
-    let omega = F::two_adicity_generator(n);
+// pub(super) fn lagrange_polys_impl<F, P, PF>(
+//     n: usize,
+//     poly_from_coeffs: PF,
+// ) -> Result<Vec<P>, BackendError>
+// where
+//     F: FieldElement + std::ops::MulAssign + std::ops::AddAssign + std::ops::Add<Output = F>,
+//     PF: Fn(Vec<F>) -> P + Copy,
+// {
+//     let omega = F::two_adicity_generator(n);
+//     let omega_inv = omega
+//         .invert()
+//         .ok_or(BackendError::Math("invalid generator inversion"))?;
+
+//     // Convert n to a field element by adding 1 n times
+//     let n_scalar = F::from_u64(n as u64);
+
+//     let mut omega_inv_pows = Vec::with_capacity(n);
+//     let mut cur = F::one();
+//     for _ in 0..n {
+//         omega_inv_pows.push(cur);
+//         cur *= omega_inv;
+//     }
+
+//     let mut denominators: Vec<F> = omega_inv_pows
+//         .iter()
+//         .map(|w| {
+//             let mut denom = *w;
+//             denom *= n_scalar;
+//             denom
+//         })
+//         .collect();
+//     F::batch_inversion(&mut denominators)?;
+
+//     let mut polys = Vec::with_capacity(n);
+//     for (omega_i_inv, denom_inv) in omega_inv_pows.iter().zip(denominators.iter()) {
+//         let mut coeffs = Vec::with_capacity(n);
+//         let mut power = *omega_i_inv;
+//         for _ in 0..n {
+//             let mut term = power;
+//             term *= *denom_inv;
+//             coeffs.push(term);
+//             power *= *omega_i_inv;
+//         }
+//         polys.push(poly_from_coeffs(coeffs));
+//     }
+//     Ok(polys)
+// }
+
+// pub(super) fn interp_mostly_zero_impl<F, P, PF>(
+//     eval: F,
+//     points: &[F],
+//     poly_from_coeffs: PF,
+// ) -> Result<P, BackendError>
+// where
+//     F: FieldElement
+//         + std::ops::MulAssign
+//         + std::ops::AddAssign
+//         + std::ops::Mul<Output = F>
+//         + std::ops::Neg<Output = F>
+//         + std::ops::Add<Output = F>,
+//     PF: Fn(Vec<F>) -> P,
+// {
+//     if points.is_empty() {
+//         return Ok(poly_from_coeffs(vec![F::one()]));
+//     }
+
+//     let mut coeffs = vec![F::one()];
+//     for point in points.iter().skip(1) {
+//         let neg_point = -*point;
+//         coeffs.push(F::zero());
+//         for i in (0..coeffs.len() - 1).rev() {
+//             let (head, tail) = coeffs.split_at_mut(i + 1);
+//             let coef = &mut head[i];
+//             let next = &mut tail[0];
+//             let coef_clone = *coef;
+//             *next += coef_clone;
+//             *coef *= neg_point;
+//         }
+//     }
+
+//     let mut scale = coeffs
+//         .last()
+//         .cloned()
+//         .ok_or(BackendError::Math("interpolation scale missing"))?;
+//     let first_point = points[0];
+//     for coeff in coeffs.iter().rev().skip(1) {
+//         scale = scale * first_point + *coeff;
+//     }
+//     let scale_inv = scale
+//         .invert()
+//         .ok_or(BackendError::Math("interpolation scale inversion failed"))?;
+
+//     let mut factor = eval;
+//     factor *= scale_inv;
+//     for coeff in coeffs.iter_mut() {
+//         *coeff *= factor;
+//     }
+
+//     Ok(poly_from_coeffs(coeffs))
+// }
+
+/// Build Lagrange polynomials L_0 ... L_{n-1} for a domain of size `n`.
+#[instrument(level = "info", skip_all, fields(num_parties=n))]
+pub(crate) fn build_lagrange_polys(n: usize) -> Result<Vec<DensePolynomial>, BackendError> {
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+
+    // Follow the same construction as `lagrange_polys_impl` in arith::lagrange
+    let omega = Fr::two_adicity_generator(n);
     let omega_inv = omega
         .invert()
         .ok_or(BackendError::Math("invalid generator inversion"))?;
 
-    // Convert n to a field element by adding 1 n times
-    let n_scalar = F::from_u64(n as u64);
+    // Convert n to a field element
+    let n_scalar = Fr::from_u64(n as u64);
 
     let mut omega_inv_pows = Vec::with_capacity(n);
-    let mut cur = F::one();
+    let mut cur = Fr::one();
     for _ in 0..n {
         omega_inv_pows.push(cur);
         cur *= omega_inv;
     }
 
-    let mut denominators: Vec<F> = omega_inv_pows
+    let mut denominators: Vec<Fr> = omega_inv_pows
         .iter()
         .map(|w| {
             let mut denom = *w;
@@ -168,7 +269,7 @@ where
             denom
         })
         .collect();
-    F::batch_inversion(&mut denominators)?;
+    Fr::batch_inversion(&mut denominators)?;
 
     let mut polys = Vec::with_capacity(n);
     for (omega_i_inv, denom_inv) in omega_inv_pows.iter().zip(denominators.iter()) {
@@ -180,60 +281,7 @@ where
             coeffs.push(term);
             power *= *omega_i_inv;
         }
-        polys.push(poly_from_coeffs(coeffs));
+        polys.push(DensePolynomial::from_coefficients_vec(coeffs));
     }
     Ok(polys)
-}
-
-pub(super) fn interp_mostly_zero_impl<F, P, PF>(
-    eval: F,
-    points: &[F],
-    poly_from_coeffs: PF,
-) -> Result<P, BackendError>
-where
-    F: FieldElement
-        + std::ops::MulAssign
-        + std::ops::AddAssign
-        + std::ops::Mul<Output = F>
-        + std::ops::Neg<Output = F>
-        + std::ops::Add<Output = F>,
-    PF: Fn(Vec<F>) -> P,
-{
-    if points.is_empty() {
-        return Ok(poly_from_coeffs(vec![F::one()]));
-    }
-
-    let mut coeffs = vec![F::one()];
-    for point in points.iter().skip(1) {
-        let neg_point = -*point;
-        coeffs.push(F::zero());
-        for i in (0..coeffs.len() - 1).rev() {
-            let (head, tail) = coeffs.split_at_mut(i + 1);
-            let coef = &mut head[i];
-            let next = &mut tail[0];
-            let coef_clone = *coef;
-            *next += coef_clone;
-            *coef *= neg_point;
-        }
-    }
-
-    let mut scale = coeffs
-        .last()
-        .cloned()
-        .ok_or(BackendError::Math("interpolation scale missing"))?;
-    let first_point = points[0];
-    for coeff in coeffs.iter().rev().skip(1) {
-        scale = scale * first_point + *coeff;
-    }
-    let scale_inv = scale
-        .invert()
-        .ok_or(BackendError::Math("interpolation scale inversion failed"))?;
-
-    let mut factor = eval;
-    factor *= scale_inv;
-    for coeff in coeffs.iter_mut() {
-        *coeff *= factor;
-    }
-
-    Ok(poly_from_coeffs(coeffs))
 }

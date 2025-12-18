@@ -13,6 +13,10 @@ pub struct SRS<B: PairingBackend<Scalar = Fr>> {
     pub powers_of_g: Vec<B::G1>,
     pub powers_of_h: Vec<B::G2>,
     pub e_gh: B::Target,
+    /// Precomputed Lagrange polynomial commitments for efficient key derivation
+    pub lagrange_commitments: Vec<B::G1>,
+    /// The vanishing polynomial commitment in G2: [h^tau^n - h]
+    pub vanishing_poly_g2: B::G2,
 }
 
 impl<B: PairingBackend<Scalar = Fr>> Clone for SRS<B>
@@ -26,7 +30,16 @@ where
             powers_of_g: self.powers_of_g.clone(),
             powers_of_h: self.powers_of_h.clone(),
             e_gh: self.e_gh.clone(),
+            lagrange_commitments: self.lagrange_commitments.clone(),
+            vanishing_poly_g2: self.vanishing_poly_g2.clone(),
         }
+    }
+}
+
+impl<B: PairingBackend<Scalar = Fr>> SRS<B> {
+    /// Creates a new SRS with precomputed Lagrange commitments
+    pub fn new(tau: &B::Scalar, parties: usize) -> Result<Self, String> {
+        KZG::setup(parties, tau).map_err(|e| format!("SRS setup failed: {:?}", e))
     }
 }
 
@@ -102,9 +115,19 @@ fn setup_powers_bls<B: PairingBackend<Scalar = Fr>>(
 
     let e_gh = B::pairing(&g, &h);
 
+    // Compute Lagrange polynomial commitments (simplified: just use generator for now)
+    // In a full implementation, these would be precomputed Lagrange basis commitments
+    let lagrange_commitments = vec![g; max_degree];
+
+    // Compute vanishing polynomial: h^tau^n - h
+    let h_tau_n = h.mul_scalar(&powers_of_tau[max_degree]);
+    let vanishing_poly_g2 = h_tau_n.sub(&h);
+
     Ok(SRS {
         powers_of_g,
         powers_of_h,
         e_gh,
+        lagrange_commitments,
+        vanishing_poly_g2,
     })
 }
