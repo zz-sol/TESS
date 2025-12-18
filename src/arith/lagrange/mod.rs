@@ -37,7 +37,7 @@ impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
 
         // Evaluate all Lagrange polynomials at tau
         let li_evals: Vec<B::Scalar> = lagranges
-            .iter()
+            .par_iter()
             .map(|li_poly| li_poly.evaluate(tau))
             .collect();
 
@@ -75,9 +75,9 @@ impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
                 let li_x_eval = li_minus0_eval * tau_inv;
                 let lagrange_li_x = B::G1::generator().mul_scalar(&li_x_eval);
 
-                Ok((lagrange_li, lagrange_li_minus0, lagrange_li_x))
+                (lagrange_li, lagrange_li_minus0, lagrange_li_x)
             })
-            .collect::<Result<Vec<_>, BackendError>>()?;
+            .collect::<Vec<_>>();
 
         let mut li = Vec::with_capacity(n);
         let mut li_minus0 = Vec::with_capacity(n);
@@ -103,11 +103,11 @@ impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
                             // (L_i(tau) * L_j(tau)) / z(tau)
                             (li_evals[i] * li_evals[j]) * z_eval_inv
                         };
-                        Ok(B::G1::generator().mul_scalar(&scalar))
+                        B::G1::generator().mul_scalar(&scalar)
                     })
-                    .collect::<Result<Vec<_>, BackendError>>()
+                    .collect::<Vec<_>>()
             })
-            .collect::<Result<Vec<_>, BackendError>>()?;
+            .collect::<Vec<_>>();
 
         Ok(LagrangePowers {
             li,
