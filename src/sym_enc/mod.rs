@@ -19,7 +19,7 @@
 //! # Example
 //!
 //! ```rust
-//! use tess::sym_enc::{Blake3XorEncryption, SymmetricEncryption};
+//! use tess::{Blake3XorEncryption, SymmetricEncryption};
 //!
 //! let encryption = Blake3XorEncryption::default();
 //! let secret = b"my-secret-key-32-bytes-long-min!";
@@ -53,7 +53,7 @@ use crate::Error;
 /// # Example
 ///
 /// ```rust
-/// use tess::sym_enc::{Blake3XorEncryption, SymmetricEncryption};
+/// use tess::{Blake3XorEncryption, SymmetricEncryption};
 ///
 /// let enc = Blake3XorEncryption::default();
 /// let key = b"secret-key";
@@ -105,7 +105,7 @@ pub trait SymmetricEncryption: Debug + Send + Sync {
 /// # Example
 ///
 /// ```rust
-/// use tess::sym_enc::{Blake3XorEncryption, SymmetricEncryption};
+/// use tess::{Blake3XorEncryption, SymmetricEncryption};
 ///
 /// // Create with custom domain separation
 /// let enc = Blake3XorEncryption::new(b"my-app::encryption");

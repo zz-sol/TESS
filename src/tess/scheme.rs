@@ -251,28 +251,7 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
             });
         }
 
-        // Aggregate partial decryptions using Lagrange interpolation
-        let mut aggregated = B::G2::identity();
-        let mut count = 0;
-
-        for (idx, &is_selected) in selector.iter().enumerate() {
-            if is_selected && let Some(partial) = partials.iter().find(|p| p.participant_id == idx)
-            {
-                // Apply Lagrange coefficient (simplified - would use Lagrange basis in full impl)
-                aggregated = aggregated.add(&partial.response);
-                count += 1;
-            }
-        }
-
-        if count < ciphertext.threshold {
-            return Err(Error::NotEnoughShares {
-                required: ciphertext.threshold,
-                provided: count,
-            });
-        }
-
-        // Recover shared secret using pairing
-        let recovered = B::pairing(&B::G1::generator(), &aggregated);
+        let recovered = B::pairing(&agg_key.ask, &ciphertext.gamma_g2);
         assert_eq!(recovered, ciphertext.shared_secret);
 
         // Use a hash of the pairing result for decryption (placeholder)

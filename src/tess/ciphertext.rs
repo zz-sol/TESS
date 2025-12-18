@@ -33,6 +33,7 @@ use crate::PairingBackend;
 /// let ciphertext = scheme.encrypt(
 ///     &mut rng,
 ///     &keys.aggregate_key,
+///     &params,
 ///     3,
 ///     message
 /// ).unwrap();
@@ -72,7 +73,7 @@ pub struct Ciphertext<B: PairingBackend> {
 ///
 /// let params = scheme.param_gen(&mut rng, 5, 3).unwrap();
 /// let keys = scheme.keygen(&mut rng, 5, &params).unwrap();
-/// let ciphertext = scheme.encrypt(&mut rng, &keys.aggregate_key, 3, b"message").unwrap();
+/// let ciphertext = scheme.encrypt(&mut rng, &keys.aggregate_key,&params, 3, b"message").unwrap();
 ///
 /// // Each participant creates a partial decryption
 /// let partial = scheme.partial_decrypt(&keys.secret_keys[0], &ciphertext).unwrap();
@@ -115,7 +116,7 @@ impl<B: PairingBackend> Clone for PartialDecryption<B> {
 /// let keys = scheme.keygen(&mut rng, 5, &params).unwrap();
 ///
 /// let message = b"Threshold encrypted message";
-/// let ciphertext = scheme.encrypt(&mut rng, &keys.aggregate_key, 3, message).unwrap();
+/// let ciphertext = scheme.encrypt(&mut rng, &keys.aggregate_key, &params, 3, message).unwrap();
 ///
 /// // Collect 3 partial decryptions
 /// let mut selector = vec![false; 5];

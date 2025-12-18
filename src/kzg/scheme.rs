@@ -24,7 +24,7 @@ use crate::{
 ///
 /// ```rust
 /// use rand_core::RngCore;
-/// use tess::{DensePolynomial, Fr, KZG, PairingBackend, PairingEngine, Polynomial, PolynomialCommitment};
+/// use tess::{DensePolynomial, Fr, KZG, PairingBackend, PairingEngine, Polynomial, PolynomialCommitment, FieldElement};
 ///
 /// // Setup: generate SRS with max degree 10
 /// let mut seed = [0u8; 32];
