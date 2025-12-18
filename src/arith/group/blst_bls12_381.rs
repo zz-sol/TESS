@@ -70,7 +70,7 @@ impl CurvePoint<Scalar> for G1 {
 
     fn batch_normalize(points: &[Self]) -> Vec<Self::Affine> {
         let mut affines = vec![G1Affine::identity(); points.len()];
-        <G1Projective as Curve>::batch_normalize(&points, &mut affines);
+        <G1Projective as Curve>::batch_normalize(points, &mut affines);
         affines
     }
 
@@ -125,7 +125,7 @@ impl CurvePoint<Scalar> for G2 {
 
     fn batch_normalize(points: &[Self]) -> Vec<Self::Affine> {
         let mut affines = vec![G2Affine::identity(); points.len()];
-        <G2Projective as Curve>::batch_normalize(&points, &mut affines);
+        <G2Projective as Curve>::batch_normalize(points, &mut affines);
         affines
     }
 

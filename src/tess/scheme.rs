@@ -104,7 +104,7 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
 
         // Precompute Lagrange powers (commitments) using the arith helper.
         let lagrange_powers = LagrangePowers::precompute_lagrange_powers(&lagranges, parties, &tau)
-            .map_err(|e| Error::Backend(e))?;
+            .map_err(Error::Backend)?;
 
         Ok(Params {
             srs,
@@ -128,7 +128,7 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
             })
             .collect::<Result<Vec<_>, BackendError>>()?;
 
-        let aggregate_key = AggregateKey::aggregate_keys(&public_keys, &params, parties)?;
+        let aggregate_key = AggregateKey::aggregate_keys(&public_keys, params, parties)?;
 
         Ok(KeyMaterial {
             secret_keys,
@@ -253,12 +253,11 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
         let mut count = 0;
 
         for (idx, &is_selected) in selector.iter().enumerate() {
-            if is_selected {
-                if let Some(partial) = partials.iter().find(|p| p.participant_id == idx) {
-                    // Apply Lagrange coefficient (simplified - would use Lagrange basis in full impl)
-                    aggregated = aggregated.add(&partial.response);
-                    count += 1;
-                }
+            if is_selected && let Some(partial) = partials.iter().find(|p| p.participant_id == idx)
+            {
+                // Apply Lagrange coefficient (simplified - would use Lagrange basis in full impl)
+                aggregated = aggregated.add(&partial.response);
+                count += 1;
             }
         }
 

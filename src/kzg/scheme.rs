@@ -38,7 +38,7 @@ impl<B: PairingBackend<Scalar = Fr>> SRS<B> {
     /// it uses
     pub fn new_unsafe(tau: &B::Scalar, max_degree: usize) -> Result<Self, String> {
         if max_degree < 1 {
-            return Err(format!("SRS setup failed"));
+            return Err("SRS setup failed".to_string());
         }
 
         let g = B::G1::generator();
@@ -78,7 +78,7 @@ impl<B: PairingBackend<Scalar = Fr>> PolynomialCommitment<B> for KZG {
     fn setup(max_degree: usize, seed: &[u8; 32]) -> Result<Self::Parameters, BackendError> {
         let mut rng = ChaCha20Rng::from_seed(*seed);
         let tau = Fr::random(&mut rng);
-        SRS::new_unsafe(&tau, max_degree).map_err(|e| BackendError::Other(e))
+        SRS::new_unsafe(&tau, max_degree).map_err(BackendError::Other)
     }
 
     fn commit_g1(

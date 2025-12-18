@@ -32,8 +32,8 @@ impl PairingBackend for PairingEngine {
         }
         let mut g1_affine = vec![G1Affine::identity(); g1.len()];
         let mut g2_affine = vec![G2Affine::identity(); g2.len()];
-        G1::batch_normalize(&g1, &mut g1_affine);
-        G2::batch_normalize(&g2, &mut g2_affine);
+        G1::batch_normalize(g1, &mut g1_affine);
+        G2::batch_normalize(g2, &mut g2_affine);
         let g2_prepared: Vec<G2Prepared> =
             g2_affine.iter().map(|aff| G2Prepared::from(*aff)).collect();
         let terms: Vec<_> = g1_affine.iter().zip(g2_prepared.iter()).collect();
