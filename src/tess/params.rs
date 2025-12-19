@@ -10,7 +10,6 @@ use crate::{Fr, LagrangePowers, PairingBackend, SRS};
 ///
 /// - `commitment_params`: KZG commitment parameters (powers of tau in G1 and G2)
 /// - `lagrange_powers`: Precomputed Lagrange polynomial commitments
-/// - `lagrange_polys`: The actual Lagrange basis polynomials for the domain
 ///
 /// # Security
 ///

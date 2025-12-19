@@ -183,9 +183,9 @@ mod tests {
             cur *= omega;
         }
 
-        for i in 0..n {
-            for j in 0..n {
-                let eval = polys[i].evaluate(&domain[j]);
+        for (i, poly) in polys.iter().enumerate() {
+            for (j, point) in domain.iter().enumerate() {
+                let eval = poly.evaluate(point);
                 if i == j {
                     assert_eq!(eval, Fr::one());
                 } else {

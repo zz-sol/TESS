@@ -6,30 +6,14 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tracing::instrument;
 
 use crate::{
-    AggregateKey,
-    Ciphertext,
-    DecryptionResult,
-    DensePolynomial,
-    Fr,
-    KZG,
-    KeyMaterial,
-    LagrangePowers,
-    PairingBackend,
-    Params,
-    PartialDecryption,
-    Polynomial,
-    PolynomialCommitment,
-    PublicKey,
-    Radix2EvaluationDomain,
-    SRS,
-    SecretKey,
-    TargetGroup,
-    ThresholdEncryption,
+    AggregateKey, Ciphertext, DecryptionResult, DensePolynomial, Fr, KZG, KeyMaterial,
+    LagrangePowers, PairingBackend, Params, PartialDecryption, Polynomial, PolynomialCommitment,
+    PublicKey, Radix2EvaluationDomain, SRS, SecretKey, TargetGroup, ThresholdEncryption,
     arith::{CurvePoint, FieldElement},
     build_lagrange_polys,
     errors::{BackendError, Error},
     sym_enc::{Blake3XorEncryption, SymmetricEncryption},
-    tess::keys::derive_public_key, // tess::keys::derive_public_key_from_srs,
+    tess::keys::derive_public_key,
 };
 
 /// The Silent Threshold scheme implementation.
@@ -361,9 +345,12 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
         let bhat_g1 = <KZG as PolynomialCommitment<B>>::commit_g1(&agg_key.kzg_params, &bhat)
             .map_err(Error::Backend)?;
 
-        let party_inv = Fr::from_u64(parties as u64).invert().ok_or_else(|| {
-            Error::Backend(BackendError::Math("failed to invert party count".into()))
-        })?;
+        let party_inv =
+            Fr::from_u64(parties as u64)
+                .invert()
+                .ok_or(Error::Backend(BackendError::Math(
+                    "failed to invert party count",
+                )))?;
 
         let apk = if scalars.is_empty() {
             B::G1::identity()
@@ -472,15 +459,13 @@ fn interp_mostly_zero(eval: Fr, points: &[Fr]) -> Result<DensePolynomial, Error>
         scale = scale * anchor + *coef;
     }
 
-    let scale_inv = scale.invert().ok_or_else(|| {
-        Error::Backend(BackendError::Math(
-            "failed to invert interpolation anchor".into(),
-        ))
-    })?;
+    let scale_inv = scale.invert().ok_or(Error::Backend(BackendError::Math(
+        "failed to invert interpolation anchor",
+    )))?;
     let multiplier = eval * scale_inv;
 
     for coeff in coeffs.iter_mut() {
-        *coeff = *coeff * multiplier;
+        *coeff *= multiplier;
     }
 
     Ok(DensePolynomial::from_coefficients_vec(coeffs))
@@ -522,8 +507,8 @@ mod tests {
         let share_count = threshold + 1;
         let mut selector = vec![false; parties];
         let mut partials = Vec::with_capacity(share_count);
-        for i in 0..share_count {
-            selector[i] = true;
+        for (i, selected) in selector.iter_mut().enumerate().take(share_count) {
+            *selected = true;
             partials.push(scheme.partial_decrypt(&keys.secret_keys[i], &ct).unwrap());
         }
 
