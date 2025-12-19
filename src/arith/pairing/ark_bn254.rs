@@ -13,7 +13,7 @@ impl PairingBackend for PairingEngine {
     type Target = Gt;
 
     fn pairing(g1: &Self::G1, g2: &Self::G2) -> Self::Target {
-        Bn254::pairing(&g1.0, &g2.0)
+        Bn254::pairing(g1.0, g2.0)
     }
 
     fn multi_pairing(g1: &[Self::G1], g2: &[Self::G2]) -> Result<Self::Target, BackendError> {
