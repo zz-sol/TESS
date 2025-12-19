@@ -165,3 +165,33 @@ pub(crate) fn build_lagrange_polys(n: usize) -> Result<Vec<DensePolynomial>, Bac
     }
     Ok(polys)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_lagrange_polys_evaluate_at_domain() {
+        let n = 8;
+        let polys = build_lagrange_polys(n).unwrap();
+        let omega = Fr::two_adicity_generator(n);
+
+        let mut domain = Vec::with_capacity(n);
+        let mut cur = Fr::one();
+        for _ in 0..n {
+            domain.push(cur);
+            cur *= omega;
+        }
+
+        for i in 0..n {
+            for j in 0..n {
+                let eval = polys[i].evaluate(&domain[j]);
+                if i == j {
+                    assert_eq!(eval, Fr::one());
+                } else {
+                    assert_eq!(eval, Fr::zero());
+                }
+            }
+        }
+    }
+}

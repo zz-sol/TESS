@@ -44,10 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &message,
     )?;
 
-    // Prepare selector and collect partials from the first `THRESHOLD` participants
+    // Prepare selector and collect partials from the first `THRESHOLD + 1` participants
+    let share_count = THRESHOLD + 1;
     let mut selector = vec![false; PARTIES];
-    let mut partials = Vec::with_capacity(THRESHOLD);
-    for i in 0..THRESHOLD {
+    let mut partials = Vec::with_capacity(share_count);
+    for i in 0..share_count {
         selector[i] = true;
         let p = scheme.partial_decrypt(&key_material.secret_keys[i], &ciphertext)?;
         partials.push(p);
@@ -74,4 +75,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

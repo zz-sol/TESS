@@ -496,3 +496,62 @@ fn derive_payload_key<B: PairingBackend>(enc_key: &B::Target) -> [u8; 32] {
     key.copy_from_slice(digest.as_bytes());
     key
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::thread_rng;
+
+    use crate::PairingEngine;
+
+    #[test]
+    fn e2e_negative_tampered_ciphertext() {
+        let mut rng = thread_rng();
+        let scheme = SilentThresholdScheme::<PairingEngine>::new();
+
+        let parties = 8;
+        let threshold = 4;
+        let params = scheme.param_gen(&mut rng, parties, threshold).unwrap();
+        let keys = scheme.keygen(&mut rng, parties, &params).unwrap();
+
+        let payload = b"e2e negative test payload";
+        let mut ct = scheme
+            .encrypt(&mut rng, &keys.aggregate_key, &params, threshold, payload)
+            .unwrap();
+
+        let share_count = threshold + 1;
+        let mut selector = vec![false; parties];
+        let mut partials = Vec::with_capacity(share_count);
+        for i in 0..share_count {
+            selector[i] = true;
+            partials.push(scheme.partial_decrypt(&keys.secret_keys[i], &ct).unwrap());
+        }
+
+        ct.proof_g1[0] = <PairingEngine as PairingBackend>::G1::identity();
+
+        let res = scheme.aggregate_decrypt(&ct, &partials, &selector, &keys.aggregate_key);
+        assert!(matches!(res, Err(Error::MalformedInput(_))));
+    }
+
+    #[test]
+    fn interp_mostly_zero_respects_constraints() {
+        let points = vec![Fr::one(), Fr::from_u64(3), Fr::from_u64(5)];
+        let poly = interp_mostly_zero(Fr::one(), &points).unwrap();
+
+        assert_eq!(poly.evaluate(&points[0]), Fr::one());
+        for point in points.iter().skip(1) {
+            assert_eq!(poly.evaluate(point), Fr::zero());
+        }
+    }
+
+    #[test]
+    fn derive_payload_key_deterministic() {
+        let g1 = <PairingEngine as PairingBackend>::G1::generator();
+        let g2 = <PairingEngine as PairingBackend>::G2::generator();
+        let enc_key = <PairingEngine as PairingBackend>::pairing(&g1, &g2);
+
+        let key_a = derive_payload_key::<PairingEngine>(&enc_key);
+        let key_b = derive_payload_key::<PairingEngine>(&enc_key);
+        assert_eq!(key_a, key_b);
+    }
+}
