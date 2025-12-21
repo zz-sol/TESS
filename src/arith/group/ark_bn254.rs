@@ -20,6 +20,7 @@ use ark_ec::pairing::PairingOutput;
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::{PrimeField, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use tracing::instrument;
 
 use crate::{BackendError, CurvePoint, Fr, TargetGroup};
 
