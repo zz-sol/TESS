@@ -39,8 +39,8 @@
 //! let mut rng = thread_rng();
 //!
 //! // Generate SRS (trusted setup)
-//! let tau = Fr::random(&mut rng);
-//! let srs = <KZG as PolynomialCommitment<PairingEngine>>::setup(100, &tau.to_repr()).unwrap();
+//! let seed = [0u8; 32];
+//! let srs = <KZG as PolynomialCommitment<PairingEngine>>::setup(100, &seed).unwrap();
 //!
 //! // Commit to a polynomial
 //! let coeffs = vec![Fr::one(), Fr::from_u64(2), Fr::from_u64(3)];
