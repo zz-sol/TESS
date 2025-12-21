@@ -1,3 +1,20 @@
+//! Arkworks BLS12-381 pairing backend.
+//!
+//! This module provides the pairing backend implementation for BLS12-381 using
+//! the Arkworks library. It implements the [`PairingBackend`] trait which combines
+//! scalar field, group, and pairing operations.
+//!
+//! # Feature Flag
+//!
+//! This module is only available when the `ark_bls12381` feature is enabled.
+//!
+//! # Pairing Operations
+//!
+//! The pairing e: G1 × G2 → Gt is a bilinear map used for:
+//! - KZG commitment verification
+//! - Aggregate signature verification
+//! - Zero-knowledge proof verification
+
 use ark_bls12_381::Bls12_381;
 use ark_ec::pairing::Pairing;
 

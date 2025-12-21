@@ -1,3 +1,53 @@
+//! KZG polynomial commitment scheme implementation.
+//!
+//! This module provides the core implementation of Kate-Zaverucha-Goldberg (KZG)
+//! polynomial commitments, which are used throughout the TESS protocol for:
+//!
+//! - Committing to polynomials representing secret shares
+//! - Generating proofs of polynomial evaluations
+//! - Verifying ciphertext correctness
+//!
+//! # Overview
+//!
+//! KZG commitments are a polynomial commitment scheme with the following properties:
+//!
+//! - **Succinct**: Commitments are single group elements (constant size)
+//! - **Efficient**: Evaluation proofs are also single group elements
+//! - **Binding**: Computationally infeasible to open to different polynomial
+//! - **Hiding**: Commitments reveal no information about the polynomial
+//!
+//! # Structure
+//!
+//! The module provides:
+//!
+//! - [`KZG`]: The main commitment scheme implementing [`PolynomialCommitment`]
+//! - [`SRS`]: Structured Reference String containing powers of tau
+//!
+//! # Security
+//!
+//! KZG security relies on:
+//! - The discrete logarithm problem in the chosen pairing group
+//! - The Knowledge of Exponent (KEA) assumption
+//! - Secure generation and destruction of the secret tau value
+//!
+//! # Example
+//!
+//! ```rust
+//! use rand::thread_rng;
+//! use tess::{DensePolynomial, Fr, KZG, PairingEngine, Polynomial, PolynomialCommitment, FieldElement};
+//!
+//! let mut rng = thread_rng();
+//!
+//! // Generate SRS (trusted setup)
+//! let tau = Fr::random(&mut rng);
+//! let srs = <KZG as PolynomialCommitment<PairingEngine>>::setup(100, &tau.to_repr()).unwrap();
+//!
+//! // Commit to a polynomial
+//! let coeffs = vec![Fr::one(), Fr::from_u64(2), Fr::from_u64(3)];
+//! let poly = DensePolynomial::from_coefficients_vec(coeffs);
+//! let commitment = <KZG as PolynomialCommitment<PairingEngine>>::commit_g1(&srs, &poly).unwrap();
+//! ```
+
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};

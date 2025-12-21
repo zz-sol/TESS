@@ -1,3 +1,18 @@
+//! Arkworks BLS12-381 field implementation.
+//!
+//! This module provides scalar field operations for the BLS12-381 curve using
+//! the Arkworks library. It implements the [`FieldElement`] trait for the scalar
+//! field Fr.
+//!
+//! # Feature Flag
+//!
+//! This module is only available when the `ark_bls12381` feature is enabled.
+//!
+//! # Performance
+//!
+//! The Arkworks implementation is pure Rust and provides good portability.
+//! For maximum performance, consider using the `blst` feature instead.
+
 use ark_bls12_381::Fr as ArkFr;
 use ark_ff::{FftField, Field, One as ArkOne, UniformRand, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

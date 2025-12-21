@@ -1,3 +1,18 @@
+//! Arkworks BN254 field implementation.
+//!
+//! This module provides scalar field operations for the BN254 (also known as BN128)
+//! curve using the Arkworks library. It implements the [`FieldElement`] trait for
+//! the scalar field Fr.
+//!
+//! # Feature Flag
+//!
+//! This module is only available when the `ark_bn254` feature is enabled.
+//!
+//! # About BN254
+//!
+//! BN254 is a pairing-friendly curve that offers a different security/performance
+//! tradeoff compared to BLS12-381. It provides approximately 100 bits of security.
+
 use ark_bn254::Fr as ArkFr;
 use ark_ff::{FftField, Field, One as ArkOne, UniformRand, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

@@ -1,3 +1,19 @@
+//! Arkworks BLS12-381 group operations.
+//!
+//! This module provides elliptic curve group operations for the BLS12-381 curve
+//! using the Arkworks library. It implements the [`CurvePoint`] and [`TargetGroup`]
+//! traits for G1, G2, and Gt (pairing target group).
+//!
+//! # Feature Flag
+//!
+//! This module is only available when the `ark_bls12381` feature is enabled.
+//!
+//! # Groups
+//!
+//! - **G1**: First source group for pairings (points on E(Fq))
+//! - **G2**: Second source group for pairings (points on E'(Fq2))
+//! - **Gt**: Target group for pairings (elements in Fq12)
+
 use ark_bls12_381::{Bls12_381, G1Affine, G1Projective, G2Affine, G2Projective};
 use ark_ec::PrimeGroup;
 use ark_ec::VariableBaseMSM;
@@ -60,6 +76,7 @@ impl CurvePoint<Fr> for G1 {
         <G1Projective as CurveGroup>::normalize_batch(&projective)
     }
 
+    #[instrument(level = "trace", skip_all, fields(len = points.len()))]
     fn multi_scalar_multipliation(points: &[Self], scalars: &[Fr]) -> Self {
         assert_eq!(
             points.len(),
@@ -116,6 +133,7 @@ impl CurvePoint<Fr> for G2 {
         <G2Projective as CurveGroup>::normalize_batch(&projective)
     }
 
+    #[instrument(level = "trace", skip_all, fields(len = points.len()))]
     fn multi_scalar_multipliation(points: &[Self], scalars: &[Fr]) -> Self {
         assert_eq!(
             points.len(),

@@ -22,6 +22,7 @@ use std::io::Cursor;
 
 use blstrs::{Compress, G1Affine, G1Projective, G2Affine, G2Projective, Gt as BlstGt, Scalar};
 use group::{Curve, Group, prime::PrimeCurveAffine};
+use tracing::instrument;
 
 use crate::{BackendError, CurvePoint, TargetGroup};
 
@@ -74,6 +75,7 @@ impl CurvePoint<Scalar> for G1 {
         affines
     }
 
+    #[instrument(level = "trace", skip_all, fields(len = points.len()))]
     fn multi_scalar_multipliation(points: &[Self], scalars: &[Scalar]) -> Self {
         assert_eq!(
             points.len(),
@@ -129,6 +131,7 @@ impl CurvePoint<Scalar> for G2 {
         affines
     }
 
+    #[instrument(level = "trace", skip_all, fields(len = points.len()))]
     fn multi_scalar_multipliation(points: &[Self], scalars: &[Scalar]) -> Self {
         assert_eq!(
             points.len(),

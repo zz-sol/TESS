@@ -1,3 +1,40 @@
+//! Lagrange polynomial precomputation for efficient key generation.
+//!
+//! This module provides functionality for computing and precomputing Lagrange basis
+//! polynomials and their KZG commitments. These precomputations enable the "silent"
+//! (non-interactive) key generation in the TESS protocol.
+//!
+//! # Overview
+//!
+//! Lagrange polynomials L_i(x) form a basis for polynomials over a domain, with the
+//! property that L_i(ω^j) = 1 if i=j, and 0 otherwise, where ω is a root of unity.
+//!
+//! # Precomputed Values
+//!
+//! For each participant i, we precompute commitments to:
+//! - **L_i(x)**: The i-th Lagrange basis polynomial
+//! - **L_i(x) - L_i(0)**: Shifted polynomial for proof construction
+//! - **x · L_i(x)**: Product with the monomial x
+//! - **L_i(x) · L_j(z)**: All pairwise products at vanishing polynomial
+//!
+//! These precomputed commitments are stored in the SRS and used during key generation
+//! to derive public keys without requiring polynomial operations at that time.
+//!
+//! # Performance
+//!
+//! The precomputation is parallelized using Rayon and runs in O(n²) time for n
+//! participants. For 2048 participants, this typically takes 5-10 seconds.
+//!
+//! # Mathematical Background
+//!
+//! For a domain {ω^0, ω^1, ..., ω^(n-1)} where ω is an n-th root of unity:
+//!
+//! ```text
+//! L_i(x) = (x^n - 1) / (n · ω^(-i) · (x - ω^i))
+//! ```
+//!
+//! This simplifies to efficient FFT-based computation in the evaluation domain.
+
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
@@ -14,10 +51,10 @@ use crate::{BackendError, DensePolynomial, FieldElement, Fr, PairingBackend, Pol
 ///
 /// # Fields
 ///
-/// - `li`: Commitments to L_i(x) for each participant i
-/// - `li_minus0`: Commitments to L_i(x) - L_i(0) for each i
-/// - `li_x`: Commitments to x * L_i(x) for each i
-/// - `li_lj_z`: Commitments to L_i(x) * L_j(z) for all pairs (i, j)
+/// - `li`: Commitments to L_i(x) for each participant `i`
+/// - `li_minus0`: Commitments to L_i(x) - L_i(0) for each `i`
+/// - `li_x`: Commitments to x * L_i(x) for each `i`
+/// - `li_lj_z`: Commitments to L_i(x) * L_j(z) for all pairs `(i, j)`
 #[derive(Clone, Debug)]
 pub struct LagrangePowers<B: PairingBackend> {
     pub li: Vec<B::G1>,
@@ -27,6 +64,56 @@ pub struct LagrangePowers<B: PairingBackend> {
 }
 
 impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
+    /// Precomputes KZG commitments to Lagrange polynomial transformations.
+    ///
+    /// This function computes and stores commitments to various transformations of
+    /// Lagrange basis polynomials, which are later used during key generation to
+    /// enable efficient derivation of public keys without polynomial operations.
+    ///
+    /// # Computed Commitments
+    ///
+    /// For each Lagrange polynomial L_i(x), computes commitments to:
+    ///
+    /// 1. **L_i(τ)**: Base Lagrange evaluation at the secret point
+    /// 2. **L_i(τ) - L_i(0)**: Shifted evaluation for proof construction
+    /// 3. **(L_i(τ) - L_i(0))/τ**: Normalized evaluation (equivalent to x·L_i(x))
+    /// 4. **L_i(τ)·L_j(τ)/z(τ)**: All pairwise products divided by vanishing polynomial
+    ///
+    /// where z(τ) = τ^n - 1 is the vanishing polynomial for the domain.
+    ///
+    /// # Performance
+    ///
+    /// - Parallelized using Rayon for efficient multi-core computation
+    /// - Complexity: O(n²) for computing all pairwise products
+    /// - For n=2048: typically 5-10 seconds on modern hardware
+    ///
+    /// # Algorithm Details
+    ///
+    /// 1. Evaluate all Lagrange polynomials at τ in parallel
+    /// 2. Compute the vanishing polynomial z(τ) = τ^n - 1
+    /// 3. Compute commitments to L_i, L_i - L_i(0), and x·L_i in parallel
+    /// 4. Compute all n² commitments to L_i·L_j/z in parallel
+    ///
+    /// # Arguments
+    ///
+    /// * `lagranges` - The Lagrange basis polynomials L_0, ..., L_{n-1}
+    /// * `domain_size` - Size of the evaluation domain (must equal lagranges.len())
+    /// * `tau` - The secret value from the trusted setup
+    ///
+    /// # Returns
+    ///
+    /// A `LagrangePowers` structure containing all precomputed commitments
+    ///
+    /// # Errors
+    ///
+    /// - `BackendError::Math` if z(τ) = 0 (tau is a root of unity - should be impossible)
+    /// - `BackendError::Math` if τ = 0 (invalid tau value)
+    ///
+    /// # Security
+    ///
+    /// After this function completes, the secret value `tau` should be securely
+    /// destroyed. The precomputed commitments reveal no information about tau
+    /// under the Knowledge of Exponent assumption.
     #[instrument(level = "info", skip_all, fields(size=domain_size))]
     pub(crate) fn precompute_lagrange_powers(
         lagranges: &[DensePolynomial],
@@ -118,7 +205,63 @@ impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
     }
 }
 
-/// Build Lagrange polynomials L_0 ... L_{n-1} for a domain of size `n`.
+/// Builds Lagrange basis polynomials for an evaluation domain of size n.
+///
+/// Constructs the complete set of Lagrange polynomials L_0, L_1, ..., L_{n-1}
+/// for a multiplicative subgroup of order n generated by an n-th root of unity ω.
+///
+/// # Mathematical Definition
+///
+/// Each Lagrange polynomial L_i(x) has the property:
+/// ```text
+/// L_i(ω^j) = { 1  if i = j
+///            { 0  if i ≠ j
+/// ```
+///
+/// The polynomial is defined as:
+/// ```text
+/// L_i(x) = ∏(j≠i) (x - ω^j) / (ω^i - ω^j)
+/// ```
+///
+/// This can be efficiently computed using FFT techniques in the evaluation domain.
+///
+/// # Algorithm
+///
+/// The implementation uses an FFT-based approach:
+/// 1. Compute the n-th root of unity ω using `two_adicity_generator(n)`
+/// 2. For each i, compute powers of ω^(-i)
+/// 3. Use batch inversion to compute normalization factors
+/// 4. Construct polynomial coefficients via repeated multiplication
+///
+/// # Complexity
+///
+/// - Time: O(n²) for computing all n polynomials
+/// - Space: O(n²) for storing all coefficients
+///
+/// # Arguments
+///
+/// * `n` - The domain size (must be a power of 2)
+///
+/// # Returns
+///
+/// A vector of n dense polynomials, where the i-th polynomial is L_i(x)
+///
+/// # Errors
+///
+/// - `BackendError::Math` if the root of unity cannot be inverted
+/// - `BackendError::Math` if batch inversion fails
+///
+/// # Example
+///
+/// ```ignore
+/// let polys = build_lagrange_polys(8)?;
+/// assert_eq!(polys.len(), 8);
+///
+/// // Verify the Lagrange property at domain points
+/// let omega = Fr::two_adicity_generator(8);
+/// assert_eq!(polys[0].evaluate(&Fr::one()), Fr::one());
+/// assert_eq!(polys[0].evaluate(&omega), Fr::zero());
+/// ```
 #[instrument(level = "info", skip_all, fields(num_parties=n))]
 pub(crate) fn build_lagrange_polys(n: usize) -> Result<Vec<DensePolynomial>, BackendError> {
     if n == 0 {

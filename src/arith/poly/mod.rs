@@ -96,7 +96,7 @@ impl<T> FieldArithmetic for T where
 /// Dense univariate polynomial represented by ascending coefficients.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DensePolynomialGeneric<F: FieldArithmetic> {
-    /// Coefficients where coeffs[i] is the coefficient for x^i
+    /// Coefficients where `coeffs[i]` is the coefficient for x^i
     pub coeffs: Vec<F>,
 }
 

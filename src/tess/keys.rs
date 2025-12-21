@@ -1,3 +1,36 @@
+//! Key structures for the threshold encryption scheme.
+//!
+//! This module defines the key types used in the TESS protocol:
+//!
+//! - [`SecretKey`]: A participant's secret share
+//! - [`PublicKey`]: A participant's public key with Lagrange commitment hints
+//! - [`AggregateKey`]: The combined public key used for encryption
+//! - [`KeyMaterial`]: Complete bundle of keys from key generation
+//!
+//! # Key Generation Flow
+//!
+//! 1. Each participant receives a random secret scalar
+//! 2. Public keys are derived from secret keys using the SRS
+//! 3. Lagrange polynomial commitments are computed for efficient verification
+//! 4. Public keys are aggregated to create the encryption key
+//!
+//! # Silent Setup
+//!
+//! The key generation is "silent" because participants do not need to interact
+//! with each other. All keys can be generated independently using the shared
+//! SRS from the trusted setup.
+//!
+//! # Lagrange Commitment Hints
+//!
+//! Public keys include precomputed commitments to Lagrange polynomials:
+//! - `lagrange_li`: Commitment to L_i(x)
+//! - `lagrange_li_minus0`: Commitment to L_i(x) - L_i(0)
+//! - `lagrange_li_x`: Commitment to x * L_i(x)
+//! - `lagrange_li_lj_z`: Commitments to L_i(x) * L_j(z) for all j
+//!
+//! These precomputed values eliminate the need for polynomial interpolation
+//! during decryption, significantly improving performance.
+
 use core::fmt::Debug;
 
 use tracing::instrument;
@@ -154,6 +187,46 @@ pub struct KeyMaterial<B: PairingBackend<Scalar = Fr>> {
     pub kzg_params: SRS<B>,
 }
 
+/// Derives a public key from a secret key using precomputed Lagrange commitments.
+///
+/// This function computes the participant's public key by multiplying the precomputed
+/// Lagrange polynomial commitments from the SRS with the participant's secret scalar.
+/// This enables efficient key generation without requiring polynomial operations.
+///
+/// # Silent Key Generation
+///
+/// The key derivation is "silent" because it only requires:
+/// - The participant's secret scalar
+/// - The public SRS parameters
+///
+/// No interaction with other participants is needed, allowing fully independent
+/// key generation.
+///
+/// # Computed Values
+///
+/// The public key contains:
+/// - **bls_key**: g^s where s is the secret scalar (standard BLS public key)
+/// - **lagrange_li**: Commitment to s·L_i(x)
+/// - **lagrange_li_minus0**: Commitment to s·(L_i(x) - L_i(0))
+/// - **lagrange_li_x**: Commitment to s·x·L_i(x)
+/// - **lagrange_li_lj_z**: Commitments to s·L_i(x)·L_j(z) for all j
+///
+/// These precomputed values enable O(1) verification during decryption instead
+/// of O(n) polynomial interpolation.
+///
+/// # Arguments
+///
+/// * `participant_id` - The participant's unique identifier (0-indexed)
+/// * `sk` - The participant's secret key
+/// * `params` - Public parameters containing precomputed Lagrange commitments
+///
+/// # Returns
+///
+/// The derived public key, or an error if the participant ID is out of bounds
+///
+/// # Errors
+///
+/// Returns `BackendError::Math` if `participant_id >= params.lagrange_powers.li.len()`
 #[instrument(level = "trace", skip_all, fields(participant_id))]
 pub(crate) fn derive_public_key<B: PairingBackend<Scalar = Fr>>(
     participant_id: usize,

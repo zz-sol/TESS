@@ -19,9 +19,9 @@ use crate::{BackendError, CurvePoint, FieldElement, TargetGroup};
 
 /// Main backend trait that ties together all cryptographic operations.
 ///
-/// This is the primary trait that concrete backends (like [`BlstBackend`], [`ArkworksBls12`],
-/// [`ArkworksBn254`]) must implement. It aggregates all the specialized traits and provides
-/// pairing operations.
+/// This is the primary trait that concrete backends must implement. It aggregates all
+/// the specialized traits and provides pairing operations. Concrete implementations are
+/// provided for blst (BLS12-381), Arkworks BLS12-381, and Arkworks BN254.
 ///
 /// # Type Parameters
 ///

@@ -14,8 +14,9 @@ pub struct PairingEngine;
 
 /// blst-backed `PairingBackend` implementation for BLS12-381.
 ///
-/// `BlstBackend` ties together scalar types, curve groups, KZG commitment
-/// implementation and MSM provider for the `blstrs` backend.
+/// This implementation ties together scalar types, curve groups, and pairing
+/// operations for the blstrs backend, providing high-performance operations
+/// for the BLS12-381 curve.
 impl PairingBackend for PairingEngine {
     type Scalar = Fr;
     type G1 = G1;

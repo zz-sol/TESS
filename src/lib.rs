@@ -14,22 +14,19 @@
 //!
 //! The crate is organized into several key modules:
 //!
-//! - **[`backend`]**: Core trait abstractions for cryptographic operations that allow
+//! - **`arith`**: Core trait abstractions for cryptographic operations that allow
 //!   multiple backends (Arkworks, blstrs) to provide unified interfaces. Includes traits
-//!   for field elements, curve points, pairing operations, polynomials, and KZG commitments.
+//!   for field elements, curve points, pairing operations, polynomials, and Lagrange polynomials.
 //!
-//! - **[`protocol`]**: High-level threshold encryption protocol implementation. Contains
-//!   the [`ThresholdEncryption`] trait and [`SilentThreshold`](protocol::SilentThreshold)
-//!   implementation, along with key structures like [`SecretKey`](protocol::SecretKey),
-//!   [`PublicKey`](protocol::PublicKey), [`Ciphertext`](protocol::Ciphertext), etc.
+//! - **`tess`**: High-level threshold encryption protocol implementation. Contains
+//!   the [`ThresholdEncryption`] trait and [`SilentThresholdScheme`] implementation,
+//!   along with key structures like [`SecretKey`], [`PublicKey`], [`Ciphertext`], etc.
 //!
-//! - **[`config`]**: Configuration types including [`ThresholdParameters`], [`BackendConfig`],
-//!   [`CurveId`], and [`BackendId`] for setting up threshold schemes.
+//! - **`kzg`**: KZG polynomial commitment scheme with [`SRS`] and [`PolynomialCommitment`] trait.
 //!
-//! - **[`lagrange`]**: Backend-specific Lagrange polynomial helpers for efficient
-//!   polynomial interpolation and evaluation.
+//! - **`sym_enc`**: Symmetric encryption using BLAKE3 for payload encapsulation.
 //!
-//! - **[`errors`]**: Error types for backend and protocol operations.
+//! - **`errors`**: Error types for backend and protocol operations.
 //!
 //! ## Quick Example
 //!
@@ -52,23 +49,23 @@
 //!
 //! ## Protocol Workflow
 //!
-//! 1. **SRS Generation**: Generate a Structured Reference String using [`ThresholdScheme::param_gen`].
+//! 1. **SRS Generation**: Generate a Structured Reference String using `param_gen`.
 //!    This is a one-time trusted setup that produces KZG commitment parameters.
 //!
-//! 2. **Key Generation**: Each participant generates keys using [`ThresholdScheme::keygen`],
+//! 2. **Key Generation**: Each participant generates keys using `keygen`,
 //!    which produces a secret key and public key with Lagrange commitment hints.
 //!
-//! 3. **Key Aggregation**: Combine public keys using [`ThresholdScheme::aggregate_public_key`]
+//! 3. **Key Aggregation**: Combine public keys using `aggregate_public_key`
 //!    to create an aggregate key for encryption.
 //!
-//! 4. **Encryption**: Encrypt messages using [`ThresholdScheme::encrypt`], which produces
+//! 4. **Encryption**: Encrypt messages using `encrypt`, which produces
 //!    a ciphertext with KZG proof and BLAKE3-encapsulated payload.
 //!
 //! 5. **Partial Decryption**: Each participant creates a decryption share using
-//!    [`ThresholdScheme::partial_decrypt`].
+//!    `partial_decrypt`.
 //!
 //! 6. **Aggregate Decryption**: Combine at least `t` partial decryptions using
-//!    [`ThresholdScheme::aggregate_decrypt`] to recover the plaintext.
+//!    `aggregate_decrypt` to recover the plaintext.
 //!
 //! ## Performance
 //!

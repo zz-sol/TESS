@@ -1,3 +1,83 @@
+//! Silent threshold encryption scheme implementation.
+//!
+//! This module provides the core implementation of the threshold encryption protocol
+//! with silent setup. The scheme allows a message to be encrypted such that it can
+//! only be decrypted when at least `t` out of `n` participants cooperate.
+//!
+//! # Overview
+//!
+//! The [`SilentThresholdScheme`] implements the [`ThresholdEncryption`] trait and
+//! provides the following operations:
+//!
+//! 1. **Parameter Generation** ([`param_gen`](ThresholdEncryption::param_gen)):
+//!    Generates the Structured Reference String (SRS) and precomputed Lagrange
+//!    polynomial commitments during a one-time trusted setup.
+//!
+//! 2. **Key Generation** ([`keygen`](ThresholdEncryption::keygen)):
+//!    Generates secret and public keys for all participants. Each participant
+//!    receives a secret share and corresponding public key with Lagrange hints.
+//!
+//! 3. **Encryption** ([`encrypt`](ThresholdEncryption::encrypt)):
+//!    Encrypts a message using the aggregate public key, producing a ciphertext
+//!    with KZG proofs for verification.
+//!
+//! 4. **Partial Decryption** ([`partial_decrypt`](ThresholdEncryption::partial_decrypt)):
+//!    Each participant creates a decryption share using their secret key.
+//!
+//! 5. **Aggregate Decryption** ([`aggregate_decrypt`](ThresholdEncryption::aggregate_decrypt)):
+//!    Combines at least `t` partial decryptions to recover the plaintext, with
+//!    verification of the ciphertext's validity using KZG proofs.
+//!
+//! # Mathematical Background
+//!
+//! The scheme uses:
+//! - **KZG Commitments**: For polynomial commitments and proofs
+//! - **Lagrange Interpolation**: For reconstructing secrets from shares
+//! - **Pairing-based Cryptography**: For verification using bilinear maps
+//! - **BLAKE3**: For symmetric payload encryption via KDF
+//!
+//! # Example
+//!
+//! ```rust
+//! use rand::thread_rng;
+//! use tess::{PairingEngine, SilentThresholdScheme, ThresholdEncryption};
+//!
+//! let mut rng = thread_rng();
+//! let scheme = SilentThresholdScheme::<PairingEngine>::new();
+//!
+//! // Generate parameters for 8 parties with threshold 5
+//! let params = scheme.param_gen(&mut rng, 8, 5).unwrap();
+//! let keys = scheme.keygen(&mut rng, 8, &params).unwrap();
+//!
+//! // Encrypt a message
+//! let message = b"Secret message";
+//! let ciphertext = scheme.encrypt(
+//!     &mut rng,
+//!     &keys.aggregate_key,
+//!     &params,
+//!     5,
+//!     message
+//! ).unwrap();
+//!
+//! // Collect partial decryptions from 6 participants
+//! let mut selector = vec![false; 8];
+//! let mut partials = Vec::new();
+//! for i in 0..6 {
+//!     selector[i] = true;
+//!     partials.push(scheme.partial_decrypt(&keys.secret_keys[i], &ciphertext).unwrap());
+//! }
+//!
+//! // Aggregate and decrypt
+//! let result = scheme.aggregate_decrypt(
+//!     &ciphertext,
+//!     &partials,
+//!     &selector,
+//!     &keys.aggregate_key
+//! ).unwrap();
+//!
+//! assert_eq!(result.plaintext.unwrap(), message);
+//! ```
+
 use core::{fmt::Debug, marker::PhantomData};
 
 use blake3::Hasher;
@@ -42,6 +122,19 @@ impl<B: PairingBackend> SilentThresholdScheme<B> {
         }
     }
 
+    /// Generates random secret keys for all participants.
+    ///
+    /// Each participant receives a uniformly random scalar from the field,
+    /// which serves as their secret share in the threshold scheme.
+    ///
+    /// # Arguments
+    ///
+    /// * `rng` - Cryptographically secure random number generator
+    /// * `parties` - Number of participants in the scheme
+    ///
+    /// # Returns
+    ///
+    /// A vector of secret keys, one per participant, with IDs 0..parties-1
     fn generate_secret_keys<R: RngCore + ?Sized>(rng: &mut R, parties: usize) -> Vec<SecretKey<B>> {
         (0..parties)
             .map(|participant_id| SecretKey {
@@ -435,6 +528,38 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
     }
 }
 
+/// Constructs a polynomial that evaluates to `eval` at the first point and zero at all others.
+///
+/// This is a specialized Lagrange interpolation that efficiently constructs a polynomial
+/// b(x) such that:
+/// - b(points[0]) = eval
+/// - b(points[i]) = 0 for i > 0
+///
+/// This is used during aggregate decryption to construct the interpolation polynomial
+/// for combining partial decryption shares.
+///
+/// # Algorithm
+///
+/// The polynomial is constructed by:
+/// 1. Building the product (x - points[1])(x - points[2])...(x - points[n-1])
+/// 2. Evaluating this product at points[0] to get the normalization factor
+/// 3. Scaling the coefficients so that b(points[0]) = eval
+///
+/// # Arguments
+///
+/// * `eval` - The desired evaluation at the first point (typically 1)
+/// * `points` - The evaluation points, where points[0] is the "anchor" point
+///
+/// # Returns
+///
+/// A polynomial satisfying the interpolation constraints, or an error if the
+/// anchor point is a root of the vanishing polynomial.
+///
+/// # Errors
+///
+/// Returns `Error::Backend` if the interpolation anchor cannot be inverted,
+/// which would indicate that points[0] is equal to one of the other points.
+#[instrument(level = "info", skip_all)]
 fn interp_mostly_zero(eval: Fr, points: &[Fr]) -> Result<DensePolynomial, Error> {
     if points.is_empty() {
         return Ok(DensePolynomial::from_coefficients_vec(vec![Fr::one()]));
@@ -471,6 +596,30 @@ fn interp_mostly_zero(eval: Fr, points: &[Fr]) -> Result<DensePolynomial, Error>
     Ok(DensePolynomial::from_coefficients_vec(coeffs))
 }
 
+/// Derives a symmetric encryption key from a pairing target group element.
+///
+/// Uses BLAKE3 as a key derivation function (KDF) to convert the shared secret
+/// from the pairing operation into a 32-byte symmetric key suitable for payload
+/// encryption.
+///
+/// # Domain Separation
+///
+/// The derivation uses the domain separator "tess::payload-key" to ensure
+/// cryptographic independence from other uses of BLAKE3 in the system.
+///
+/// # Arguments
+///
+/// * `enc_key` - The shared secret from the pairing operation e(g,h)^s
+///
+/// # Returns
+///
+/// A 32-byte symmetric key derived deterministically from the input
+///
+/// # Security
+///
+/// The derived key is computationally indistinguishable from random under
+/// the assumption that BLAKE3 is a secure hash function and the input
+/// has sufficient entropy.
 fn derive_payload_key<B: PairingBackend>(enc_key: &B::Target) -> [u8; 32] {
     let mut hasher = Hasher::new();
     hasher.update(b"tess::payload-key");

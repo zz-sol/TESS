@@ -1,3 +1,20 @@
+//! Arkworks BN254 pairing backend.
+//!
+//! This module provides the pairing backend implementation for BN254 using
+//! the Arkworks library. It implements the [`PairingBackend`] trait which combines
+//! scalar field, group, and pairing operations.
+//!
+//! # Feature Flag
+//!
+//! This module is only available when the `ark_bn254` feature is enabled.
+//!
+//! # Pairing Operations
+//!
+//! The pairing e: G1 × G2 → Gt is a bilinear map used for:
+//! - KZG commitment verification
+//! - Aggregate signature verification
+//! - Zero-knowledge proof verification
+
 use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
 

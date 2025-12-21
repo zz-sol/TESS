@@ -1,3 +1,35 @@
+//! Ciphertext and decryption result structures.
+//!
+//! This module defines the output types for encryption and decryption operations:
+//!
+//! - [`Ciphertext`]: The encrypted message with KZG proofs
+//! - [`PartialDecryption`]: A participant's decryption share
+//! - [`DecryptionResult`]: The final decrypted plaintext
+//!
+//! # Ciphertext Structure
+//!
+//! A ciphertext contains:
+//! - **Encrypted Payload**: The message encrypted using BLAKE3-based XOR encryption
+//! - **KZG Proofs**: Zero-knowledge proofs in G1 and G2 that enable verification
+//! - **Shared Secret**: Precomputed pairing result for efficient verification
+//! - **Threshold**: The minimum number of shares required for decryption
+//!
+//! # Decryption Protocol
+//!
+//! 1. Each participant computes a partial decryption using their secret key
+//! 2. At least `t` partial decryptions are collected
+//! 3. The partial decryptions are aggregated using Lagrange interpolation
+//! 4. The ciphertext is verified using the KZG proofs
+//! 5. If verification succeeds, the payload is decrypted
+//!
+//! # Security
+//!
+//! The KZG proofs ensure that:
+//! - The ciphertext was properly formed
+//! - The encryption used the correct aggregate public key
+//! - Partial decryptions cannot be forged
+//! - The threshold requirement is enforced
+
 use core::fmt::Debug;
 
 use crate::PairingBackend;
