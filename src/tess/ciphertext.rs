@@ -29,6 +29,13 @@
 //! - The encryption used the correct aggregate public key
 //! - Partial decryptions cannot be forged
 //! - The threshold requirement is enforced
+//!
+//! # Important
+//!
+//! The ciphertext includes the derived `shared_secret`, so the payload encryption
+//! is not confidential against anyone who can read the ciphertext. This is
+//! intended behavior in this reference-based implementation and is only suitable
+//! when confidentiality of the payload is not required.
 
 use alloc::vec::Vec;
 use core::fmt::Debug;

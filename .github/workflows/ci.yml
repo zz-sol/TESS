@@ -80,3 +80,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo test (macOS ${{ matrix.name }})
         run: cargo test ${{ matrix.args }}
+
+  build-no-std:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ark-bn254
+            args: --no-default-features --features ark_bn254
+          - name: ark-bls12381
+            args: --no-default-features --features ark_bls12381
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo build (no_std ${{ matrix.name }})
+        run: cargo build ${{ matrix.args }}

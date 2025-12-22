@@ -34,13 +34,14 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use tracing::instrument;
 use zeroize::Zeroize;
 
 use crate::{
     Fr, PairingBackend, Params, SRS,
-    arith::CurvePoint,
+    arith::{CurvePoint, FieldElement},
     errors::{BackendError, Error},
 };
 
@@ -232,23 +233,53 @@ impl<B: PairingBackend<Scalar = Fr>> AggregateKey<B> {
             return Err(Error::InvalidConfig("public key length mismatch".into()));
         }
 
-        let ask = public_keys
-            .par_iter()
-            .map(|pk| pk.lagrange_li)
-            .reduce(B::G1::identity, |acc, val| acc.add(&val));
+        let ask = {
+            #[cfg(feature = "parallel")]
+            {
+                public_keys
+                    .par_iter()
+                    .map(|pk| pk.lagrange_li)
+                    .reduce(B::G1::identity, |acc, val| acc.add(&val))
+            }
+            #[cfg(not(feature = "parallel"))]
+            {
+                public_keys
+                    .iter()
+                    .fold(B::G1::identity(), |acc, pk| acc.add(&pk.lagrange_li))
+            }
+        };
 
-        let lagrange_row_sums: Vec<B::G1> = (0..parties)
-            .into_par_iter()
-            .map(|idx| {
-                let mut row = B::G1::identity();
-                for pk in public_keys {
-                    if let Some(val) = pk.lagrange_li_lj_z.get(idx) {
-                        row = row.add(val);
-                    }
-                }
-                row
-            })
-            .collect();
+        let lagrange_row_sums: Vec<B::G1> = {
+            #[cfg(feature = "parallel")]
+            {
+                (0..parties)
+                    .into_par_iter()
+                    .map(|idx| {
+                        let mut row = B::G1::identity();
+                        for pk in public_keys {
+                            if let Some(val) = pk.lagrange_li_lj_z.get(idx) {
+                                row = row.add(val);
+                            }
+                        }
+                        row
+                    })
+                    .collect()
+            }
+            #[cfg(not(feature = "parallel"))]
+            {
+                (0..parties)
+                    .map(|idx| {
+                        let mut row = B::G1::identity();
+                        for pk in public_keys {
+                            if let Some(val) = pk.lagrange_li_lj_z.get(idx) {
+                                row = row.add(val);
+                            }
+                        }
+                        row
+                    })
+                    .collect()
+            }
+        };
 
         let g2_gen = params.srs.powers_of_h[0];
         // h * tau^n is available at index `parties` in the SRS

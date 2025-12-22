@@ -83,6 +83,7 @@ use core::{fmt::Debug, marker::PhantomData};
 
 use blake3::Hasher;
 use rand_core::RngCore;
+#[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tracing::instrument;
 
@@ -200,7 +201,6 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
                 lagrange_powers,
             })
         })();
-        tau = B::Scalar::zero();
         result
     }
 
@@ -213,10 +213,22 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
     ) -> Result<KeyMaterial<B>, Error> {
         let secret_keys = Self::generate_secret_keys(rng, parties);
 
-        let public_keys = secret_keys
-            .par_iter()
-            .map(|sk| sk.derive_public_key(params))
-            .collect::<Result<Vec<_>, BackendError>>()?;
+        let public_keys = {
+            #[cfg(feature = "parallel")]
+            {
+                secret_keys
+                    .par_iter()
+                    .map(|sk| sk.derive_public_key(params))
+                    .collect::<Result<Vec<_>, BackendError>>()?
+            }
+            #[cfg(not(feature = "parallel"))]
+            {
+                secret_keys
+                    .iter()
+                    .map(|sk| sk.derive_public_key(params))
+                    .collect::<Result<Vec<_>, BackendError>>()?
+            }
+        };
 
         let aggregate_key = AggregateKey::aggregate_keys(&public_keys, params, parties)?;
         Ok(KeyMaterial {

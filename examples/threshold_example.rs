@@ -1,5 +1,6 @@
 use rand::{SeedableRng, rngs::StdRng};
 use tracing::info;
+#[cfg(feature = "tracing-subscriber")]
 use tracing_subscriber::fmt;
 
 use tess::{PairingEngine, SilentThresholdScheme, ThresholdEncryption};
@@ -8,13 +9,16 @@ const PARTIES: usize = 2048;
 const THRESHOLD: usize = 1400;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    fmt()
-        .with_max_level(tracing::Level::INFO)
-        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE)
-        .with_target(false)
-        .with_ansi(false)
-        .init();
+    // Initialize logging when tracing-subscriber is available.
+    #[cfg(feature = "tracing-subscriber")]
+    {
+        fmt()
+            .with_max_level(tracing::Level::INFO)
+            .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE)
+            .with_target(false)
+            .with_ansi(false)
+            .init();
+    }
 
     let mut rng = StdRng::seed_from_u64(42);
 

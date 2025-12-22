@@ -52,6 +52,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+#[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::CurvePoint;
@@ -188,7 +189,7 @@ impl<B: PairingBackend<Scalar = Fr>> SRS<B> {
     /// ```
     pub fn new_unsafe(tau: &B::Scalar, max_degree: usize) -> Result<Self, String> {
         if max_degree < 1 {
-            return Err("SRS setup failed".to_string());
+            return Err(String::from("SRS setup failed"));
         }
 
         let g = B::G1::generator();
@@ -201,18 +202,41 @@ impl<B: PairingBackend<Scalar = Fr>> SRS<B> {
             cur *= tau;
         }
 
-        let powers_of_g: Vec<B::G1> = powers_of_tau
-            .par_iter()
-            .map(|power| g.mul_scalar(power))
-            .collect();
+        let powers_of_g: Vec<B::G1> = {
+            #[cfg(feature = "parallel")]
+            {
+                powers_of_tau
+                    .par_iter()
+                    .map(|power| g.mul_scalar(power))
+                    .collect()
+            }
+            #[cfg(not(feature = "parallel"))]
+            {
+                powers_of_tau
+                    .iter()
+                    .map(|power| g.mul_scalar(power))
+                    .collect()
+            }
+        };
 
-        let powers_of_h: Vec<B::G2> = powers_of_tau
-            .par_iter()
-            .map(|power| h.mul_scalar(power))
-            .collect();
+        let powers_of_h: Vec<B::G2> = {
+            #[cfg(feature = "parallel")]
+            {
+                powers_of_tau
+                    .par_iter()
+                    .map(|power| h.mul_scalar(power))
+                    .collect()
+            }
+            #[cfg(not(feature = "parallel"))]
+            {
+                powers_of_tau
+                    .iter()
+                    .map(|power| h.mul_scalar(power))
+                    .collect()
+            }
+        };
 
         let e_gh = B::pairing(&g, &h);
-        cur = B::Scalar::zero();
         wipe_scalars(&mut powers_of_tau);
 
         Ok(SRS {
@@ -231,7 +255,6 @@ impl<B: PairingBackend<Scalar = Fr>> PolynomialCommitment<B> for KZG {
         let mut rng = ChaCha20Rng::from_seed(*seed);
         let mut tau = Fr::random(&mut rng);
         let result = SRS::new_unsafe(&tau, max_degree).map_err(BackendError::Other);
-        tau = Fr::zero();
         result
     }
 

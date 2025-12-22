@@ -36,6 +36,7 @@
 //! This simplifies to efficient FFT-based computation in the evaluation domain.
 
 use alloc::vec::Vec;
+#[cfg(feature = "parallel")]
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
@@ -128,10 +129,22 @@ impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
         let n = lagranges.len();
 
         // Evaluate all Lagrange polynomials at tau
-        let li_evals: Vec<B::Scalar> = lagranges
-            .par_iter()
-            .map(|li_poly| li_poly.evaluate(tau))
-            .collect();
+        let li_evals: Vec<B::Scalar> = {
+            #[cfg(feature = "parallel")]
+            {
+                lagranges
+                    .par_iter()
+                    .map(|li_poly| li_poly.evaluate(tau))
+                    .collect()
+            }
+            #[cfg(not(feature = "parallel"))]
+            {
+                lagranges
+                    .iter()
+                    .map(|li_poly| li_poly.evaluate(tau))
+                    .collect()
+            }
+        };
 
         // Compute tau^n - 1 (the vanishing polynomial evaluated at tau)
         let tau_n = tau.pow(&[domain_size as u64, 0, 0, 0]);
@@ -145,31 +158,64 @@ impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
             .ok_or(BackendError::Math("tau must be non-zero"))?;
 
         // Compute li, li_minus0, and li_x in parallel
-        let results: Vec<(B::G1, B::G1, B::G1)> = lagranges
-            .par_iter()
-            .enumerate()
-            .map(|(i, li_poly)| {
-                let li_eval = &li_evals[i];
+        let results: Vec<(B::G1, B::G1, B::G1)> = {
+            #[cfg(feature = "parallel")]
+            {
+                lagranges
+                    .par_iter()
+                    .enumerate()
+                    .map(|(i, li_poly)| {
+                        let li_eval = &li_evals[i];
 
-                // li = g * L_i(tau)
-                let lagrange_li = B::G1::generator().mul_scalar(li_eval);
+                        // li = g * L_i(tau)
+                        let lagrange_li = B::G1::generator().mul_scalar(li_eval);
 
-                // li_minus0 = g * (L_i(tau) - L_i(0))
-                let li_0 = li_poly
-                    .coeffs()
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(<B::Scalar as FieldElement>::zero);
-                let li_minus0_eval = *li_eval - li_0;
-                let lagrange_li_minus0 = B::G1::generator().mul_scalar(&li_minus0_eval);
+                        // li_minus0 = g * (L_i(tau) - L_i(0))
+                        let li_0 = li_poly
+                            .coeffs()
+                            .first()
+                            .cloned()
+                            .unwrap_or_else(<B::Scalar as FieldElement>::zero);
+                        let li_minus0_eval = *li_eval - li_0;
+                        let lagrange_li_minus0 = B::G1::generator().mul_scalar(&li_minus0_eval);
 
-                // li_x = g * (L_i(tau) - L_i(0)) / tau
-                let li_x_eval = li_minus0_eval * tau_inv;
-                let lagrange_li_x = B::G1::generator().mul_scalar(&li_x_eval);
+                        // li_x = g * (L_i(tau) - L_i(0)) / tau
+                        let li_x_eval = li_minus0_eval * tau_inv;
+                        let lagrange_li_x = B::G1::generator().mul_scalar(&li_x_eval);
 
-                (lagrange_li, lagrange_li_minus0, lagrange_li_x)
-            })
-            .collect::<Vec<_>>();
+                        (lagrange_li, lagrange_li_minus0, lagrange_li_x)
+                    })
+                    .collect::<Vec<_>>()
+            }
+            #[cfg(not(feature = "parallel"))]
+            {
+                lagranges
+                    .iter()
+                    .enumerate()
+                    .map(|(i, li_poly)| {
+                        let li_eval = &li_evals[i];
+
+                        // li = g * L_i(tau)
+                        let lagrange_li = B::G1::generator().mul_scalar(li_eval);
+
+                        // li_minus0 = g * (L_i(tau) - L_i(0))
+                        let li_0 = li_poly
+                            .coeffs()
+                            .first()
+                            .cloned()
+                            .unwrap_or_else(<B::Scalar as FieldElement>::zero);
+                        let li_minus0_eval = *li_eval - li_0;
+                        let lagrange_li_minus0 = B::G1::generator().mul_scalar(&li_minus0_eval);
+
+                        // li_x = g * (L_i(tau) - L_i(0)) / tau
+                        let li_x_eval = li_minus0_eval * tau_inv;
+                        let lagrange_li_x = B::G1::generator().mul_scalar(&li_x_eval);
+
+                        (lagrange_li, lagrange_li_minus0, lagrange_li_x)
+                    })
+                    .collect::<Vec<_>>()
+            }
+        };
 
         let mut li = Vec::with_capacity(n);
         let mut li_minus0 = Vec::with_capacity(n);
@@ -181,25 +227,50 @@ impl<B: PairingBackend<Scalar = Fr>> LagrangePowers<B> {
         }
 
         // Compute li_lj_z using the evaluation-based approach
-        let li_lj_z: Vec<Vec<B::G1>> = (0..n)
-            .into_par_iter()
-            .map(|i| {
+        let li_lj_z: Vec<Vec<B::G1>> = {
+            #[cfg(feature = "parallel")]
+            {
                 (0..n)
                     .into_par_iter()
-                    .map(|j| {
-                        let scalar = if i == j {
-                            // (L_i(tau)^2 - L_i(tau)) / z(tau)
-                            let li_eval: &B::Scalar = &li_evals[i];
-                            (*li_eval * *li_eval - *li_eval) * z_eval_inv
-                        } else {
-                            // (L_i(tau) * L_j(tau)) / z(tau)
-                            (li_evals[i] * li_evals[j]) * z_eval_inv
-                        };
-                        B::G1::generator().mul_scalar(&scalar)
+                    .map(|i| {
+                        (0..n)
+                            .into_par_iter()
+                            .map(|j| {
+                                let scalar = if i == j {
+                                    // (L_i(tau)^2 - L_i(tau)) / z(tau)
+                                    let li_eval: &B::Scalar = &li_evals[i];
+                                    (*li_eval * *li_eval - *li_eval) * z_eval_inv
+                                } else {
+                                    // (L_i(tau) * L_j(tau)) / z(tau)
+                                    (li_evals[i] * li_evals[j]) * z_eval_inv
+                                };
+                                B::G1::generator().mul_scalar(&scalar)
+                            })
+                            .collect::<Vec<_>>()
                     })
                     .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+            }
+            #[cfg(not(feature = "parallel"))]
+            {
+                (0..n)
+                    .map(|i| {
+                        (0..n)
+                            .map(|j| {
+                                let scalar = if i == j {
+                                    // (L_i(tau)^2 - L_i(tau)) / z(tau)
+                                    let li_eval: &B::Scalar = &li_evals[i];
+                                    (*li_eval * *li_eval - *li_eval) * z_eval_inv
+                                } else {
+                                    // (L_i(tau) * L_j(tau)) / z(tau)
+                                    (li_evals[i] * li_evals[j]) * z_eval_inv
+                                };
+                                B::G1::generator().mul_scalar(&scalar)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            }
+        };
 
         Ok(LagrangePowers {
             li,

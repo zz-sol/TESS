@@ -61,6 +61,7 @@ pub trait PolynomialCommitment<B: PairingBackend>: Send + Sync + Debug + 'static
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
     use rand::{SeedableRng, rngs::StdRng};
     use rand_core::RngCore;
 
