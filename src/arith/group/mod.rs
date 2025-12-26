@@ -47,6 +47,9 @@ pub trait CurvePoint<F: FieldElement>: Clone + Send + Sync + Debug + 'static + C
     /// Associated affine representation.
     type Affine: Clone + Debug + Send + Sync + 'static + Copy;
 
+    /// Byte representation for serialization.
+    type Repr: AsRef<[u8]> + AsMut<[u8]> + Default + Debug + Send + Sync + Clone + 'static;
+
     /// Returns the point at infinity (identity element).
     fn identity() -> Self;
 
@@ -82,6 +85,12 @@ pub trait CurvePoint<F: FieldElement>: Clone + Send + Sync + Debug + 'static + C
 
     /// Performs multi scalar multiplications.
     fn multi_scalar_multiplication(points: &[Self], scalar: &[F]) -> Self;
+
+    /// Serializes this point to its byte representation.
+    fn to_repr(&self) -> Self::Repr;
+
+    /// Deserializes a point from its byte representation.
+    fn from_repr(bytes: &Self::Repr) -> Result<Self, BackendError>;
 }
 
 /// Pairing target group (GT) abstraction.

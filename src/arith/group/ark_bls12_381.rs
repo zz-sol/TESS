@@ -39,6 +39,7 @@ pub type Gt = PairingOutput<Bls12_381>;
 
 impl CurvePoint<Fr> for G1 {
     type Affine = G1Affine;
+    type Repr = Vec<u8>;
 
     fn identity() -> Self {
         G1(G1Projective::zero())
@@ -92,10 +93,25 @@ impl CurvePoint<Fr> for G1 {
         let result = G1Projective::msm(&affine_points, scalars).unwrap();
         G1(result)
     }
+
+    fn to_repr(&self) -> Self::Repr {
+        let mut bytes = Vec::new();
+        self.0
+            .serialize_compressed(&mut bytes)
+            .expect("g1 serialization");
+        bytes
+    }
+
+    fn from_repr(bytes: &Self::Repr) -> Result<Self, BackendError> {
+        let affine = G1Affine::deserialize_compressed(bytes.as_slice())
+            .map_err(|_| BackendError::Serialization("invalid G1 bytes"))?;
+        Ok(G1(affine.into_group()))
+    }
 }
 
 impl CurvePoint<Fr> for G2 {
     type Affine = G2Affine;
+    type Repr = Vec<u8>;
 
     fn identity() -> Self {
         G2(G2Projective::zero())
@@ -148,6 +164,20 @@ impl CurvePoint<Fr> for G2 {
         let affine_points = Self::batch_normalize(points);
         let result = G2Projective::msm(&affine_points, scalars).unwrap();
         G2(result)
+    }
+
+    fn to_repr(&self) -> Self::Repr {
+        let mut bytes = Vec::new();
+        self.0
+            .serialize_compressed(&mut bytes)
+            .expect("g2 serialization");
+        bytes
+    }
+
+    fn from_repr(bytes: &Self::Repr) -> Result<Self, BackendError> {
+        let affine = G2Affine::deserialize_compressed(bytes.as_slice())
+            .map_err(|_| BackendError::Serialization("invalid G2 bytes"))?;
+        Ok(G2(affine.into_group()))
     }
 }
 

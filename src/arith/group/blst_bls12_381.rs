@@ -37,6 +37,8 @@ pub type Gt = BlstGt;
 impl CurvePoint<Scalar> for G1 {
     type Affine = G1Affine;
 
+    type Repr = Vec<u8>;
+
     fn identity() -> Self {
         <G1Projective as Group>::identity()
     }
@@ -88,10 +90,29 @@ impl CurvePoint<Scalar> for G1 {
         );
         G1::multi_exp(points, scalars)
     }
+
+    fn to_repr(&self) -> Self::Repr {
+        CurvePoint::to_affine(self)
+            .to_compressed()
+            .as_ref()
+            .to_vec()
+    }
+
+    fn from_repr(bytes: &Self::Repr) -> Result<Self, BackendError> {
+        let mut raw = [0u8; 48];
+        if bytes.len() != raw.len() {
+            return Err(BackendError::Serialization("invalid G1 bytes"));
+        }
+        raw.copy_from_slice(bytes);
+        let affine = Option::<G1Affine>::from(G1Affine::from_compressed(&raw))
+            .ok_or(BackendError::Serialization("invalid G1 bytes"))?;
+        Ok(affine.into())
+    }
 }
 
 impl CurvePoint<Scalar> for G2 {
     type Affine = G2Affine;
+    type Repr = Vec<u8>;
 
     fn identity() -> Self {
         <G2Projective as Group>::identity()
@@ -143,6 +164,24 @@ impl CurvePoint<Scalar> for G2 {
             "points and scalars must have the same length"
         );
         G2::multi_exp(points, scalars)
+    }
+
+    fn to_repr(&self) -> Self::Repr {
+        CurvePoint::to_affine(self)
+            .to_compressed()
+            .as_ref()
+            .to_vec()
+    }
+
+    fn from_repr(bytes: &Self::Repr) -> Result<Self, BackendError> {
+        let mut raw = [0u8; 96];
+        if bytes.len() != raw.len() {
+            return Err(BackendError::Serialization("invalid G2 bytes"));
+        }
+        raw.copy_from_slice(bytes);
+        let affine = Option::<G2Affine>::from(G2Affine::from_compressed(&raw))
+            .ok_or(BackendError::Serialization("invalid G2 bytes"))?;
+        Ok(affine.into())
     }
 }
 
