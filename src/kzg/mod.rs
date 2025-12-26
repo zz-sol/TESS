@@ -57,6 +57,22 @@ pub trait PolynomialCommitment<B: PairingBackend>: Send + Sync + Debug + 'static
         params: &Self::Parameters,
         polynomial: &Self::Polynomial,
     ) -> Result<B::G2, BackendError>;
+
+    /// Opens a commitment at a point in G1, returning the evaluation and proof.
+    fn open_g1(
+        params: &Self::Parameters,
+        polynomial: &Self::Polynomial,
+        point: &B::Scalar,
+    ) -> Result<(B::Scalar, B::G1), BackendError>;
+
+    /// Verifies a commitment opening in G1.
+    fn verify_g1(
+        params: &Self::Parameters,
+        commitment: &B::G1,
+        point: &B::Scalar,
+        value: &B::Scalar,
+        proof: &B::G1,
+    ) -> Result<bool, BackendError>;
 }
 
 #[cfg(test)]
@@ -86,5 +102,20 @@ mod tests {
     #[test]
     fn kzg_commitment() {
         kzg_commitment_helper::<crate::PairingEngine>(&mut StdRng::from_entropy());
+    }
+
+    #[test]
+    fn kzg_open_verify() {
+        let mut rng = StdRng::from_entropy();
+        let mut seed = [0u8; 32];
+        rng.fill_bytes(&mut seed);
+        let params: SRS<crate::PairingEngine> = KZG::setup(8, &seed).expect("setup");
+        let coeffs: Vec<Fr> = (0..4).map(|_| Fr::random(&mut rng)).collect();
+        let poly = DensePolynomial::from_coefficients_vec(coeffs);
+        let commitment = KZG::commit_g1(&params, &poly).expect("commit");
+        let point = Fr::from_u64(3);
+        let (value, proof) = KZG::open_g1(&params, &poly, &point).expect("open");
+        let ok = KZG::verify_g1(&params, &commitment, &point, &value, &proof).expect("verify");
+        assert!(ok, "opening proof should verify");
     }
 }

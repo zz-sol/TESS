@@ -285,6 +285,52 @@ impl<B: PairingBackend<Scalar = Fr>> PolynomialCommitment<B> for KZG {
             B::G2::multi_scalar_multiplication(&params.powers_of_h[..=degree], scalars);
         Ok(commitment)
     }
+
+    fn open_g1(
+        params: &Self::Parameters,
+        polynomial: &Self::Polynomial,
+        point: &B::Scalar,
+    ) -> Result<(B::Scalar, B::G1), BackendError> {
+        if params.powers_of_g.is_empty() {
+            return Err(BackendError::Math("missing SRS powers"));
+        }
+
+        let value = polynomial.evaluate(point);
+        if polynomial.degree() == 0 {
+            return Ok((value, B::G1::identity()));
+        }
+
+        let mut shifted = polynomial.clone();
+        if let Some(constant) = shifted.coeffs.get_mut(0) {
+            *constant -= value;
+        }
+        let (quotient, remainder) = shifted.divide_by_linear(*point);
+        if remainder != Fr::zero() {
+            return Err(BackendError::Math("non-zero remainder in opening"));
+        }
+        let proof = Self::commit_g1(params, &quotient)?;
+        Ok((value, proof))
+    }
+
+    fn verify_g1(
+        params: &Self::Parameters,
+        commitment: &B::G1,
+        point: &B::Scalar,
+        value: &B::Scalar,
+        proof: &B::G1,
+    ) -> Result<bool, BackendError> {
+        if params.powers_of_h.len() < 2 {
+            return Err(BackendError::Math("insufficient SRS powers"));
+        }
+
+        let g = B::G1::generator();
+        let h = params.powers_of_h[0];
+        let h_tau = params.powers_of_h[1];
+
+        let left = B::pairing(&commitment.sub(&g.mul_scalar(value)), &h);
+        let right = B::pairing(proof, &h_tau.sub(&h.mul_scalar(point)));
+        Ok(left == right)
+    }
 }
 
 fn wipe_scalars<F: FieldElement + Copy>(scalars: &mut [F]) {
