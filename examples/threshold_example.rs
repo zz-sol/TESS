@@ -68,8 +68,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Encrypt
     let ciphertext = scheme.encrypt(&mut rng, &aggregate_key, &params, THRESHOLD, &message)?;
 
-    // Prepare selector and collect partials from the first `THRESHOLD + 1` participants
-    let share_count = THRESHOLD + 1;
+    // Prepare selector and collect partials from the first `THRESHOLD` participants
+    let share_count = THRESHOLD;
     let mut selector = vec![false; PARTIES];
     let mut partials = Vec::with_capacity(share_count);
     for (i, selected) in selector.iter_mut().enumerate().take(share_count) {

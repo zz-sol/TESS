@@ -59,10 +59,10 @@
 //!     message
 //! ).unwrap();
 //!
-//! // Collect partial decryptions from 6 participants
+//! // Collect partial decryptions from 5 participants (threshold)
 //! let mut selector = vec![false; 8];
 //! let mut partials = Vec::new();
-//! for i in 0..6 {
+//! for i in 0..5 {
 //!     selector[i] = true;
 //!     partials.push(scheme.partial_decrypt(&keys.secret_keys[i], &ciphertext).unwrap());
 //! }
@@ -294,7 +294,7 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
                 "threshold must be greater than 0".into(),
             ));
         }
-        if threshold + 1 >= params.srs.powers_of_g.len() {
+        if threshold >= params.srs.powers_of_g.len() {
             return Err(Error::InvalidConfig(
                 "threshold exceeds available SRS powers".into(),
             ));
@@ -314,12 +314,12 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
 
         // Create proof elements
 
-        // sa1[0] = s0*ask + s3*g^{tau^{t+1}} + s4*g
-        // sa1[0] = (apk.ask * s[0]) + (params.powers_of_g[t + 1] * s[3]) + (params.powers_of_g[0] * s[4]);
+        // sa1[0] = s0*ask + s3*g^{tau^{t}} + s4*g
+        // sa1[0] = (apk.ask * s[0]) + (params.powers_of_g[t] * s[3]) + (params.powers_of_g[0] * s[4]);
         let sa1_0 = agg_key
             .ask
             .mul_scalar(&s0)
-            .add(&params.srs.powers_of_g[threshold + 1].mul_scalar(&s3))
+            .add(&params.srs.powers_of_g[threshold].mul_scalar(&s3))
             .add(&g.mul_scalar(&s4));
 
         // sa1[1] = s2*g
@@ -480,7 +480,7 @@ impl<B: PairingBackend<Scalar = Fr>> ThresholdEncryption<B> for SilentThresholdS
         let q0_g1 = <KZG as PolynomialCommitment<B>>::commit_g1(&agg_key.kzg_params, &q0)
             .map_err(Error::Backend)?;
 
-        let mut bhat_coeffs = vec![Fr::zero(); ciphertext.threshold + 1];
+        let mut bhat_coeffs = vec![Fr::zero(); ciphertext.threshold];
         bhat_coeffs.extend_from_slice(b_polynomial.coeffs());
         let bhat = DensePolynomial::from_coefficients_vec(bhat_coeffs);
         let bhat_g1 = <KZG as PolynomialCommitment<B>>::commit_g1(&agg_key.kzg_params, &bhat)
@@ -702,7 +702,7 @@ mod tests {
             .encrypt(&mut rng, &keys.aggregate_key, &params, threshold, payload)
             .unwrap();
 
-        let share_count = threshold + 1;
+        let share_count = threshold;
         let mut selector = vec![false; parties];
         let mut partials = Vec::with_capacity(share_count);
         for (i, selected) in selector.iter_mut().enumerate().take(share_count) {

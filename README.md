@@ -74,8 +74,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         message,
     )?;
 
-    // 4. Collect partial decryptions from THRESHOLD + 1 participants
-    let share_count = THRESHOLD + 1;
+    // 4. Collect partial decryptions from THRESHOLD participants
+    let share_count = THRESHOLD;
     let mut selector = vec![false; PARTIES];
     let mut partials = Vec::new();
 

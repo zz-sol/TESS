@@ -60,8 +60,8 @@ pub fn bench_threshold(c: &mut Criterion) {
         )
         .expect("encrypt failed");
 
-    // Collect partial decryptions from the first `threshold + 1` participants
-    let share_count = threshold + 1;
+    // Collect partial decryptions from the first `threshold` participants
+    let share_count = threshold;
     let mut partials = Vec::with_capacity(share_count);
     let mut selector = vec![false; parties];
     for (i, selected) in selector.iter_mut().enumerate().take(share_count) {
